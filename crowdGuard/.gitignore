@@ -5,3 +5,5 @@ logs/*.csv
 logs/latest_status.json
 .env
 config/crowdguard.local.json
+react-ui/node_modules/
+react-ui/dist/

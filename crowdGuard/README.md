@@ -38,6 +38,26 @@ If you want address-based area metadata or Google Places lookups, add a `GOOGLE_
 
 Without an API key, `crowdGuard` still works using manually configured area dimensions or directly supplied map polygons.
 
+Recommended Google services for this project:
+
+- `Geocoding API` for address-to-location lookup
+- `Places API` for place search/details
+- `Maps JavaScript API` only if you want an interactive map inside the frontend
+
+## React UI
+
+A React/Vite frontend scaffold is available in [react-ui](C:/Users/KIIT0001/Desktop/Crowd%20control/crowdGuard/react-ui).
+
+Run it with:
+
+```powershell
+cd crowdGuard\react-ui
+npm.cmd install
+npm.cmd run dev
+```
+
+This React UI consumes the existing CrowdGuard API at `http://127.0.0.1:5001`.
+
 ## Deployment note
 
 Bluetooth and other wireless cameras are supported when the device is exposed to Windows as:
