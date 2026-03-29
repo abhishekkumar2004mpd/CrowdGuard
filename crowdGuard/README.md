@@ -57,3 +57,13 @@ The sample config now enables tracked people counting inspired by your downloade
 - pose-based filtering so the crowd count still prefers real human structure
 
 You can tune the counting line in [crowdguard.sample.json](C:/Users/KIIT0001/Desktop/Crowd%20control/crowdGuard/config/crowdguard.sample.json) by editing the `processing.tracking.line_zone.start_ratio` and `end_ratio` values.
+
+## Display scaling
+
+To enlarge only the user-visible camera window without changing model input or tracking logic, tune these values in [crowdguard.sample.json](C:/Users/KIIT0001/Desktop/Crowd%20control/crowdGuard/config/crowdguard.sample.json):
+
+- `processing.display_scale`
+- `processing.display_max_width`
+- `processing.display_max_height`
+
+`crowdGuard` draws overlays on the original annotated frame first and resizes only the final display image, so aspect ratio and overlay alignment stay correct.

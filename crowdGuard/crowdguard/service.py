@@ -69,6 +69,9 @@ class CrowdGuardService:
         frame_skip = max(int(self.processing.get("frame_skip", 1)), 1)
         resize_width = int(self.processing.get("resize_width", 0) or 0)
         display = bool(self.processing.get("display", True))
+        display_max_width = int(self.processing.get("display_max_width", 1600) or 0)
+        display_max_height = int(self.processing.get("display_max_height", 900) or 0)
+        display_scale = float(self.processing.get("display_scale", 1.0) or 1.0)
         cooldown_seconds = float(self.processing.get("cooldown_seconds", 120))
         tracking_config = self.processing.get("tracking", {})
         warning_threshold = float(self.risk_rules.get("warning_threshold", 0.85))
@@ -123,12 +126,42 @@ class CrowdGuardService:
             self._log_alert_if_needed(camera, risk, cooldown_seconds)
 
             if display:
-                cv2.imshow(f"crowdGuard - {camera.label}", annotated)
+                display_frame = self._resize_for_display(
+                    annotated,
+                    max_width=display_max_width,
+                    max_height=display_max_height,
+                    scale=display_scale,
+                )
+                cv2.imshow(f"crowdGuard - {camera.label}", display_frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
 
         cap.release()
         cv2.destroyAllWindows()
+
+    @staticmethod
+    def _resize_for_display(frame, max_width: int, max_height: int, scale: float):
+        height, width = frame.shape[:2]
+        if width <= 0 or height <= 0:
+            return frame
+
+        scale = max(scale, 1.0)
+
+        if max_width > 0 and max_height > 0:
+            bounded_scale = min(max_width / width, max_height / height)
+            scale = max(scale, bounded_scale)
+        elif max_width > 0:
+            scale = max(scale, max_width / width)
+        elif max_height > 0:
+            scale = max(scale, max_height / height)
+
+        new_width = max(int(width * scale), 1)
+        new_height = max(int(height * scale), 1)
+
+        if new_width == width and new_height == height:
+            return frame
+
+        return cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
 
     def _annotate_frame(self, frame, camera: CameraConfig, risk, detections, in_count: int, out_count: int):
         if risk.status == "CRITICAL":
