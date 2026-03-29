@@ -5,9 +5,11 @@
     "timezone": "Asia/Calcutta"
   },
   "model": {
-    "model_path": "../Crowd Control/yolov8n.pt",
+    "model_path": "../Crowd Control/yolov8n-pose.pt",
     "confidence_threshold": 0.45,
     "iou_threshold": 0.45,
+    "min_keypoints": 5,
+    "min_keypoint_confidence": 0.35,
     "device": "cpu",
     "classes": [
       0

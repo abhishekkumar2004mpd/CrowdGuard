@@ -25,6 +25,8 @@ class CrowdGuardService:
             model_path=model_path,
             confidence_threshold=float(model_config.get("confidence_threshold", 0.45)),
             iou_threshold=float(model_config.get("iou_threshold", 0.45)),
+            min_keypoints=int(model_config.get("min_keypoints", 5)),
+            min_keypoint_confidence=float(model_config.get("min_keypoint_confidence", 0.35)),
         )
         self.processing = self.config.processing
         self.risk_rules = self.config.risk_rules

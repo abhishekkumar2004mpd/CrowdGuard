@@ -1,5 +1,6 @@
 import unittest
 
+from crowdguard.detector import CrowdDetector
 from crowdguard.risk_engine import estimate_area_sq_meters, estimate_safe_capacity, evaluate_risk
 
 
@@ -16,6 +17,20 @@ class RiskEngineTests(unittest.TestCase):
         critical = evaluate_risk(25, 10, 2.5, 0.8, 1.0)
         self.assertEqual(warning.status, "WARNING")
         self.assertEqual(critical.status, "CRITICAL")
+
+    def test_pose_threshold_requires_shoulders_and_feature_points(self):
+        detector = CrowdDetector.__new__(CrowdDetector)
+        detector.min_keypoints = 5
+        detector.min_keypoint_confidence = 0.35
+
+        confidences = [0.0] * 17
+        for index in (1, 2, 5, 6, 7):
+            confidences[index] = 0.9
+
+        self.assertTrue(detector._passes_pose_threshold([(0, 0)] * 17, confidences))
+        confidences[5] = 0.1
+        confidences[6] = 0.1
+        self.assertFalse(detector._passes_pose_threshold([(0, 0)] * 17, confidences))
 
 
 if __name__ == "__main__":
