@@ -5,6 +5,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import cv2
+
 
 class AlertLogger:
     def __init__(self, log_dir: Path):
@@ -14,6 +16,8 @@ class AlertLogger:
         self.critical_csv = self.log_dir / "stampede_critical_alerts.csv"
         self.metrics_csv = self.log_dir / f"crowd_metrics_{datetime.now().strftime('%Y-%m-%d')}.csv"
         self.status_json = self.log_dir / "latest_status.json"
+        self.raw_frame_path = self.log_dir / "latest_raw.jpg"
+        self.annotated_frame_path = self.log_dir / "latest_annotated.jpg"
         self._ensure_files()
 
     def _ensure_files(self) -> None:
@@ -49,3 +53,7 @@ class AlertLogger:
     def write_status(self, payload: dict[str, object]) -> None:
         with self.status_json.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2)
+
+    def write_frames(self, raw_frame, annotated_frame) -> None:
+        cv2.imwrite(str(self.raw_frame_path), raw_frame)
+        cv2.imwrite(str(self.annotated_frame_path), annotated_frame)

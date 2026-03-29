@@ -4,13 +4,15 @@ import argparse
 import json
 from pathlib import Path
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_file
 from flask_cors import CORS
 
 
 def create_app(status_file: Path) -> Flask:
     app = Flask(__name__)
     CORS(app)
+    raw_frame_file = status_file.parent / "latest_raw.jpg"
+    annotated_frame_file = status_file.parent / "latest_annotated.jpg"
 
     @app.get("/health")
     def health():
@@ -22,6 +24,18 @@ def create_app(status_file: Path) -> Flask:
             return jsonify({"status": "idle", "message": "No monitoring output yet."})
         with status_file.open("r", encoding="utf-8") as handle:
             return jsonify(json.load(handle))
+
+    @app.get("/frame/raw")
+    def raw_frame():
+        if not raw_frame_file.exists():
+            return jsonify({"status": "missing", "message": "No raw frame available yet."}), 404
+        return send_file(raw_frame_file, mimetype="image/jpeg", max_age=0)
+
+    @app.get("/frame/annotated")
+    def annotated_frame():
+        if not annotated_frame_file.exists():
+            return jsonify({"status": "missing", "message": "No annotated frame available yet."}), 404
+        return send_file(annotated_frame_file, mimetype="image/jpeg", max_age=0)
 
     return app
 

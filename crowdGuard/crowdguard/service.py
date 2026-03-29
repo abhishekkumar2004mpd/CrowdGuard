@@ -122,6 +122,7 @@ class CrowdGuardService:
                 critical_threshold=critical_threshold,
             )
             annotated = self._annotate_frame(frame, camera, risk, detections, in_count, out_count)
+            self.logger.write_frames(frame, annotated)
             self._log_metric(camera, risk, in_count, out_count)
             self._log_alert_if_needed(camera, risk, cooldown_seconds)
 

@@ -15,6 +15,8 @@ const APP_STATE = {
   streamUrl: "",
   animationFrame: null,
   pollingTimer: null,
+  frameTimer: null,
+  apiOnline: false,
   selectedSourceLabel: "Not started",
   selectedMode: "laptop",
   metrics: {
@@ -321,8 +323,10 @@ function afterSourceStarted(rawStatus, analysisStatus) {
 function stopCurrentSource() {
   if (APP_STATE.animationFrame) cancelAnimationFrame(APP_STATE.animationFrame);
   if (APP_STATE.pollingTimer) clearInterval(APP_STATE.pollingTimer);
+  if (APP_STATE.frameTimer) clearInterval(APP_STATE.frameTimer);
   APP_STATE.animationFrame = null;
   APP_STATE.pollingTimer = null;
+  APP_STATE.frameTimer = null;
   if (APP_STATE.stream) APP_STATE.stream.getTracks().forEach((track) => track.stop());
   APP_STATE.stream = null;
   if (APP_STATE.streamUrl) {
@@ -340,69 +344,50 @@ function stopCurrentSource() {
   setChip("analysisFeedStatus", "Waiting", "status-admin");
 }
 
-function buildOverlayBoxes(width, height, count) {
-  const boxCount = Math.min(count, 8);
-  return Array.from({ length: boxCount }, (_, index) => {
-    const boxWidth = width * 0.1;
-    const boxHeight = height * 0.22;
-    const gap = (width * 0.78) / Math.max(boxCount, 1);
-    const x = width * 0.08 + gap * index;
-    const y = height * (0.24 + (index % 2) * 0.1);
-    return { x, y, width: boxWidth, height: boxHeight };
-  });
-}
-
-function drawAnalysisOverlay(context, canvas, metrics) {
-  const width = canvas.width;
-  const height = canvas.height;
-  const statusColor = metrics.status === "CRITICAL" ? "#d1342c" : metrics.status === "WARNING" ? "#df6d14" : "#2f7d32";
-  const boxes = buildOverlayBoxes(width, height, metrics.person_count);
-  context.lineWidth = 3;
-  context.fillStyle = "rgba(18, 18, 22, 0.66)";
-  context.fillRect(18, 18, 320, 134);
-  context.font = "16px JetBrains Mono";
-  context.fillStyle = "#ffffff";
-  context.fillText(`Current Count: ${metrics.person_count}`, 32, 48);
-  context.fillText(`Safe Capacity: ${metrics.safe_capacity}`, 32, 74);
-  context.fillText(`Area (sqm): ${metrics.area_sq_meters}`, 32, 100);
-  context.fillText(`Density: ${Number(metrics.density).toFixed(2)}`, 32, 126);
-  context.strokeStyle = statusColor;
-  boxes.forEach((box, index) => {
-    context.strokeRect(box.x, box.y, box.width, box.height);
-    context.fillStyle = statusColor;
-    context.fillRect(box.x, box.y - 24, 66, 20);
-    context.fillStyle = "#fff";
-    context.fillText(`ID ${index + 1}`, box.x + 8, box.y - 9);
-  });
-  if (metrics.message) {
-    context.fillStyle = statusColor;
-    context.fillRect(0, height - 58, width, 58);
-    context.fillStyle = "#fff";
-    context.font = "18px Space Grotesk";
-    context.fillText(metrics.message, 18, height - 22);
-  }
-}
-
 function renderAnalysisLoop() {
-  const video = getRawVideo();
   const canvas = getAnalysisCanvas();
-  if (!video || !canvas) return;
+  if (!canvas) return;
   const context = canvas.getContext("2d");
-  const draw = () => {
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
+  if (APP_STATE.frameTimer) clearInterval(APP_STATE.frameTimer);
+
+  const drawFallback = () => {
+    const video = getRawVideo();
+    const width = video?.videoWidth || 1280;
+    const height = video?.videoHeight || 720;
     canvas.width = width;
     canvas.height = height;
-    if (video.readyState >= 2) context.drawImage(video, 0, 0, width, height);
+    if (video && video.readyState >= 2) context.drawImage(video, 0, 0, width, height);
     else {
       context.fillStyle = "#101114";
       context.fillRect(0, 0, width, height);
     }
-    drawAnalysisOverlay(context, canvas, APP_STATE.metrics);
-    APP_STATE.animationFrame = requestAnimationFrame(draw);
+    context.fillStyle = "rgba(18, 18, 22, 0.72)";
+    context.fillRect(30, 30, width - 60, 118);
+    context.fillStyle = "#ffffff";
+    context.font = "28px Space Grotesk";
+    context.fillText("Waiting for real backend annotations", 50, 78);
+    context.font = "18px DM Sans";
+    context.fillText("Run crowdGuard app.py and api.py to stream actual YOLO output here.", 50, 116);
   };
-  if (APP_STATE.animationFrame) cancelAnimationFrame(APP_STATE.animationFrame);
-  draw();
+
+  const drawBackendFrame = () => {
+    const image = new Image();
+    image.onload = () => {
+      canvas.width = image.width;
+      canvas.height = image.height;
+      context.drawImage(image, 0, 0, image.width, image.height);
+    };
+    image.onerror = drawFallback;
+    image.src = `http://127.0.0.1:5001/frame/annotated?ts=${Date.now()}`;
+  };
+
+  const tick = () => {
+    if (APP_STATE.apiOnline) drawBackendFrame();
+    else drawFallback();
+  };
+
+  tick();
+  APP_STATE.frameTimer = setInterval(tick, 600);
 }
 
 async function fetchStatus() {
@@ -420,28 +405,25 @@ async function fetchHealth() {
     const response = await fetch("http://127.0.0.1:5001/health");
     if (!response.ok) throw new Error("health check failed");
     const payload = await response.json();
+    APP_STATE.apiOnline = payload.status === "ok";
     setChip("apiHealthChip", payload.status === "ok" ? "API online" : "API degraded", payload.status === "ok" ? "status-admin" : "");
   } catch {
+    APP_STATE.apiOnline = false;
     setChip("apiHealthChip", "API offline");
   }
 }
 
 function simulateMetrics() {
-  const base = APP_STATE.metrics.person_count || 6;
-  const next = Math.max(0, base + Math.round((Math.random() - 0.3) * 3));
-  const capacity = APP_STATE.metrics.safe_capacity || 40;
-  const area = APP_STATE.metrics.area_sq_meters || 80;
-  const occupancy = capacity ? next / capacity : 0;
   return {
-    person_count: next,
-    safe_capacity: capacity,
-    area_sq_meters: area,
-    density: next / area,
-    in_count: Math.max(0, Math.round(next * 0.32)),
-    out_count: Math.max(0, Math.round(next * 0.18)),
-    status: occupancy >= 1 ? "CRITICAL" : occupancy >= 0.85 ? "WARNING" : "NORMAL",
-    message: occupancy >= 1 ? "Stampede happening critical notice" : occupancy >= 0.85 ? "Stampede might happen" : "Crowd within safe range",
-    occupancy_ratio: occupancy,
+    person_count: 0,
+    safe_capacity: 0,
+    area_sq_meters: 0,
+    density: 0,
+    in_count: 0,
+    out_count: 0,
+    status: "IDLE",
+    message: "Backend model is offline or has not published frames yet.",
+    occupancy_ratio: 0,
     timestamp: new Date().toISOString(),
   };
 }
@@ -577,6 +559,7 @@ function renderHealth() {
 async function pollStatusOnce() {
   updateMetrics(normalizeMetrics(await fetchStatus()));
   renderHealth();
+  fetchHealth();
 }
 
 function startStatusPolling() {
