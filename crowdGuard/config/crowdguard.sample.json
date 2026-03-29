@@ -1,0 +1,76 @@
+{
+  "project": {
+    "name": "crowdGuard",
+    "site_name": "Client Demo Site",
+    "timezone": "Asia/Calcutta"
+  },
+  "model": {
+    "model_path": "../Crowd Control/yolov8n.pt",
+    "confidence_threshold": 0.45,
+    "iou_threshold": 0.45,
+    "device": "cpu",
+    "classes": [
+      0
+    ]
+  },
+  "processing": {
+    "frame_skip": 2,
+    "resize_width": 1280,
+    "target_fps": 12,
+    "display": true,
+    "cooldown_seconds": 120
+  },
+  "risk_rules": {
+    "warning_threshold": 0.85,
+    "critical_threshold": 1.0,
+    "safe_density_per_sq_meter": 2.5
+  },
+  "google_maps": {
+    "enabled": false,
+    "location_name": "",
+    "place_id": "",
+    "polygon": [],
+    "fallback_area_sq_meters": 120.0
+  },
+  "cameras": [
+    {
+      "camera_id": "entry_gate_usb",
+      "label": "Entry Gate USB Camera",
+      "source_type": "webcam",
+      "source": 0,
+      "enabled": true,
+      "area": {
+        "name": "Entry Gate",
+        "width_meters": 8.0,
+        "length_meters": 10.0,
+        "fallback_area_sq_meters": 80.0,
+        "safe_density_per_sq_meter": 2.5
+      }
+    },
+    {
+      "camera_id": "platform_rtsp",
+      "label": "Platform CCTV",
+      "source_type": "rtsp",
+      "source": "rtsp://username:password@192.168.1.10:554/stream1",
+      "enabled": false,
+      "area": {
+        "name": "Platform Zone",
+        "fallback_area_sq_meters": 180.0,
+        "safe_density_per_sq_meter": 2.2
+      }
+    },
+    {
+      "camera_id": "wireless_bridge",
+      "label": "Wireless Camera Bridge",
+      "source_type": "bluetooth",
+      "source": 1,
+      "enabled": false,
+      "notes": "Use the webcam index or bridge stream exposed by Windows/vendor software.",
+      "area": {
+        "name": "Wireless Coverage Zone",
+        "fallback_area_sq_meters": 60.0,
+        "safe_density_per_sq_meter": 2.0
+      }
+    }
+  ]
+}

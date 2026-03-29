@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+logs/*.csv
+logs/latest_status.json
+.env
+config/crowdguard.local.json
