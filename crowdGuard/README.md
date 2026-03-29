@@ -5,6 +5,7 @@
 ## Core capabilities
 
 - YOLOv8 person detection for real-time crowd counting
+- YOLOv8 pose validation plus optional tracked line-crossing counting
 - Camera source abstraction for webcam, RTSP/IP CCTV, HTTP streams, files, and paired wireless devices
 - Area-aware risk engine with warning and critical stampede alerts
 - Separate CSV logs for warning and critical incidents
@@ -46,3 +47,13 @@ Bluetooth and other wireless cameras are supported when the device is exposed to
 - a bridge/virtual-camera source created by the camera vendor app
 
 Direct low-level Bluetooth video transport is hardware-vendor-specific, so the deployment path is to pair the device with Windows and then configure the resulting index or URL.
+
+## Tracking mode
+
+The sample config now enables tracked people counting inspired by your downloaded scripts:
+
+- persistent YOLO tracking
+- optional line-crossing counts for `in` and `out`
+- pose-based filtering so the crowd count still prefers real human structure
+
+You can tune the counting line in [crowdguard.sample.json](C:/Users/KIIT0001/Desktop/Crowd%20control/crowdGuard/config/crowdguard.sample.json) by editing the `processing.tracking.line_zone.start_ratio` and `end_ratio` values.

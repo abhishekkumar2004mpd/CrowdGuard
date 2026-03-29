@@ -70,6 +70,7 @@ class CrowdGuardService:
         resize_width = int(self.processing.get("resize_width", 0) or 0)
         display = bool(self.processing.get("display", True))
         cooldown_seconds = float(self.processing.get("cooldown_seconds", 120))
+        tracking_config = self.processing.get("tracking", {})
         warning_threshold = float(self.risk_rules.get("warning_threshold", 0.85))
         critical_threshold = float(self.risk_rules.get("critical_threshold", 1.0))
         safe_density_per_sq_meter = float(
@@ -96,7 +97,20 @@ class CrowdGuardService:
                 scale = resize_width / frame.shape[1]
                 frame = cv2.resize(frame, (resize_width, int(frame.shape[0] * scale)))
 
-            detections = self.detector.detect(frame)
+            if tracking_config.get("enabled", False):
+                tracking = self.detector.track(
+                    frame,
+                    camera.camera_id,
+                    line_zone_config=tracking_config.get("line_zone", {}),
+                    imgsz=int(tracking_config.get("imgsz", 640)),
+                )
+                detections = tracking.detections
+                in_count = tracking.in_count
+                out_count = tracking.out_count
+            else:
+                detections = self.detector.detect(frame)
+                in_count = 0
+                out_count = 0
             risk = evaluate_risk(
                 person_count=len(detections),
                 area_sq_meters=area_sq_meters,
@@ -104,8 +118,8 @@ class CrowdGuardService:
                 warning_threshold=warning_threshold,
                 critical_threshold=critical_threshold,
             )
-            annotated = self._annotate_frame(frame, camera, risk, detections)
-            self._log_metric(camera, risk)
+            annotated = self._annotate_frame(frame, camera, risk, detections, in_count, out_count)
+            self._log_metric(camera, risk, in_count, out_count)
             self._log_alert_if_needed(camera, risk, cooldown_seconds)
 
             if display:
@@ -116,7 +130,7 @@ class CrowdGuardService:
         cap.release()
         cv2.destroyAllWindows()
 
-    def _annotate_frame(self, frame, camera: CameraConfig, risk, detections):
+    def _annotate_frame(self, frame, camera: CameraConfig, risk, detections, in_count: int, out_count: int):
         if risk.status == "CRITICAL":
             color = (0, 0, 255)
         elif risk.status == "WARNING":
@@ -132,10 +146,11 @@ class CrowdGuardService:
             f"Safe capacity: {risk.safe_capacity}",
             f"Occupancy: {risk.occupancy_ratio * 100:.1f}%",
             f"Density: {risk.density:.2f} person/sqm",
+            f"In/Out: {in_count}/{out_count}",
             f"Status: {risk.status}",
         ]
 
-        cv2.rectangle(annotated, (0, 0), (430, 180), (20, 20, 20), -1)
+        cv2.rectangle(annotated, (0, 0), (430, 205), (20, 20, 20), -1)
         y = 25
         for line in lines:
             cv2.putText(annotated, line, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
@@ -154,7 +169,7 @@ class CrowdGuardService:
             )
         return annotated
 
-    def _log_metric(self, camera: CameraConfig, risk) -> None:
+    def _log_metric(self, camera: CameraConfig, risk, in_count: int, out_count: int) -> None:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.logger.write_status(
             {
@@ -166,6 +181,8 @@ class CrowdGuardService:
                 "occupancy_ratio": round(risk.occupancy_ratio, 4),
                 "density": round(risk.density, 4),
                 "area_sq_meters": round(risk.area_sq_meters, 2),
+                "in_count": in_count,
+                "out_count": out_count,
                 "status": risk.status,
                 "message": risk.message,
             }
@@ -180,6 +197,8 @@ class CrowdGuardService:
                 round(risk.occupancy_ratio, 4),
                 round(risk.density, 4),
                 round(risk.area_sq_meters, 2),
+                in_count,
+                out_count,
                 risk.status,
             ]
         )

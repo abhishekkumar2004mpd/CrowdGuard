@@ -20,7 +20,22 @@
     "resize_width": 1280,
     "target_fps": 12,
     "display": true,
-    "cooldown_seconds": 120
+    "cooldown_seconds": 120,
+    "tracking": {
+      "enabled": true,
+      "imgsz": 640,
+      "line_zone": {
+        "enabled": true,
+        "start_ratio": [
+          0.0,
+          0.5
+        ],
+        "end_ratio": [
+          1.0,
+          0.5
+        ]
+      }
+    }
   },
   "risk_rules": {
     "warning_threshold": 0.85,

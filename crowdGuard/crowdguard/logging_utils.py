@@ -27,7 +27,7 @@ class AlertLogger:
         )
         self._ensure_csv(
             self.metrics_csv,
-            ["timestamp", "camera_id", "camera_label", "person_count", "safe_capacity", "occupancy_ratio", "density", "area_sq_meters", "status"],
+            ["timestamp", "camera_id", "camera_label", "person_count", "safe_capacity", "occupancy_ratio", "density", "area_sq_meters", "in_count", "out_count", "status"],
         )
 
     @staticmethod
