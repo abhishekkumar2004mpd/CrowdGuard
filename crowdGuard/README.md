@@ -58,6 +58,15 @@ npm.cmd run dev
 
 This React UI consumes the existing CrowdGuard API at `http://127.0.0.1:5001`.
 
+The API now also supports frontend-controlled model startup:
+
+- `POST /control/start`
+- `POST /control/stop`
+- `GET /control/state`
+- `POST /control/upload`
+
+So the frontend can start a backend source and immediately receive real raw and annotated model frames.
+
 ## Deployment note
 
 Bluetooth and other wireless cameras are supported when the device is exposed to Windows as:

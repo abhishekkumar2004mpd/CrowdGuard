@@ -58,26 +58,28 @@ class AppConfig:
     def cameras(self) -> list[CameraConfig]:
         items = []
         for camera in self.raw.get("cameras", []):
-            area = camera.get("area", {})
-            items.append(
-                CameraConfig(
-                    camera_id=camera["camera_id"],
-                    label=camera.get("label", camera["camera_id"]),
-                    source_type=camera.get("source_type", "webcam"),
-                    source=camera.get("source", 0),
-                    enabled=bool(camera.get("enabled", True)),
-                    notes=camera.get("notes", ""),
-                    area=CameraAreaConfig(
-                        name=area.get("name", camera["camera_id"]),
-                        width_meters=area.get("width_meters"),
-                        length_meters=area.get("length_meters"),
-                        fallback_area_sq_meters=float(area.get("fallback_area_sq_meters", 50.0)),
-                        safe_density_per_sq_meter=float(area.get("safe_density_per_sq_meter", 2.5)),
-                        map_polygon=area.get("map_polygon", []),
-                    ),
-                )
-            )
+            items.append(build_camera_config(camera))
         return items
+
+
+def build_camera_config(camera: dict[str, Any]) -> CameraConfig:
+    area = camera.get("area", {})
+    return CameraConfig(
+        camera_id=camera["camera_id"],
+        label=camera.get("label", camera["camera_id"]),
+        source_type=camera.get("source_type", "webcam"),
+        source=camera.get("source", 0),
+        enabled=bool(camera.get("enabled", True)),
+        notes=camera.get("notes", ""),
+        area=CameraAreaConfig(
+            name=area.get("name", camera["camera_id"]),
+            width_meters=area.get("width_meters"),
+            length_meters=area.get("length_meters"),
+            fallback_area_sq_meters=float(area.get("fallback_area_sq_meters", 50.0)),
+            safe_density_per_sq_meter=float(area.get("safe_density_per_sq_meter", 2.5)),
+            map_polygon=area.get("map_polygon", []),
+        ),
+    )
 
 
 def load_config(config_path: str | Path) -> AppConfig:

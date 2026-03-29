@@ -147,7 +147,7 @@ code { font-family: "JetBrains Mono", monospace; }
 .metric-box { padding: 20px; }
 .metric-box strong { display: block; margin-top: 10px; font-size: clamp(1.8rem, 3vw, 2.8rem); }
 
-.source-bar { grid-template-columns: repeat(4, minmax(160px, 1fr)); }
+.source-bar { grid-template-columns: repeat(4, minmax(160px, 1fr)); align-items: end; }
 .field.compact { min-width: 190px; }
 
 .feed-row, .detail-panels, .chart-row, .history-row { grid-template-columns: repeat(2, 1fr); }
@@ -183,6 +183,10 @@ code { font-family: "JetBrains Mono", monospace; }
   height: 100%;
   min-height: 360px;
   object-fit: cover;
+}
+
+.frame-box img {
+  background: #101114;
 }
 
 .frame-note, .overlay-warning {

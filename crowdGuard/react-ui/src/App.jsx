@@ -136,9 +136,8 @@ function Dashboard({ session, onLogout }) {
   const [nearLimitLogs, setNearLimitLogs] = usePersistentState(LOG_KEYS.nearLimit, []);
   const [errorLogs, setErrorLogs] = usePersistentState(LOG_KEYS.errors, []);
 
-  const rawVideoRef = useRef(null);
+  const rawImageRef = useRef(null);
   const analysisImageRef = useRef(null);
-  const streamRef = useRef(null);
   const uploadRef = useRef(null);
 
   useEffect(() => {
@@ -196,6 +195,21 @@ function Dashboard({ session, onLogout }) {
         setErrorLogs((prev) => [{ createdAt: Date.now(), source: "status", message: error.message }, ...prev].slice(0, 30));
       }
 
+      try {
+        const controlResponse = await fetch(`${API_BASE}/control/state`);
+        const control = await controlResponse.json();
+        if (control.running && control.source?.label) {
+          setActiveSourceLabel(control.source.label);
+          setRawFeedStatus("Backend raw feed live");
+          setAnalysisFeedStatus("Backend model live");
+        }
+      } catch {
+        // keep existing labels if control state is unavailable
+      }
+
+      if (rawImageRef.current) {
+        rawImageRef.current.src = `${API_BASE}/frame/raw?ts=${Date.now()}`;
+      }
       if (analysisImageRef.current) {
         analysisImageRef.current.src = `${API_BASE}/frame/annotated?ts=${Date.now()}`;
       }
@@ -203,14 +217,6 @@ function Dashboard({ session, onLogout }) {
 
     return () => clearInterval(timer);
   }, [activeSourceLabel, setAlertLogs, setErrorLogs, setNearLimitLogs]);
-
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
 
   const summary = useMemo(() => {
     const cpu = `${Math.min(95, Math.max(10, metrics.person_count * 2))}%`;
@@ -221,73 +227,88 @@ function Dashboard({ session, onLogout }) {
     return { cpu, ram, software };
   }, [metrics.person_count, errorLogs.length]);
 
+  const sourcePayloadForMode = () => {
+    if (sourceMode === "laptop") {
+      return {
+        camera_id: "frontend_laptop_camera",
+        label: "Inbuilt Laptop Camera",
+        source_type: "webcam",
+        source: 0,
+        enabled: true,
+        area: { name: "Laptop Camera Zone", fallback_area_sq_meters: 80.0, safe_density_per_sq_meter: 2.5 },
+      };
+    }
+    if (sourceMode === "nearby") {
+      return {
+        camera_id: "frontend_nearby_device",
+        label: "Nearby Device",
+        source_type: "bluetooth",
+        source: 1,
+        enabled: true,
+        area: { name: "Nearby Device Zone", fallback_area_sq_meters: 70.0, safe_density_per_sq_meter: 2.3 },
+      };
+    }
+    if (sourceMode === "cctv") {
+      const url = window.prompt("Enter CCTV stream URL for backend processing.");
+      if (!url) return null;
+      return {
+        camera_id: "frontend_cctv",
+        label: "Connected CCTV",
+        source_type: "rtsp",
+        source: url,
+        enabled: true,
+        area: { name: "CCTV Zone", fallback_area_sq_meters: 140.0, safe_density_per_sq_meter: 2.2 },
+      };
+    }
+    return null;
+  };
+
   const startSource = async () => {
     try {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
-
       if (sourceMode === "upload") {
         uploadRef.current?.click();
         return;
       }
-
-      if (sourceMode === "cctv") {
-        const url = window.prompt("Enter a browser-compatible CCTV stream URL");
-        if (!url) return;
-        rawVideoRef.current.srcObject = null;
-        rawVideoRef.current.src = url;
-        await rawVideoRef.current.play();
-        setActiveSourceLabel("Connected CCTV");
-        setRawFeedStatus("CCTV live");
-        setAnalysisFeedStatus(apiOnline ? "Model online" : "Waiting for backend");
-        return;
-      }
-
-      const useDeviceId = sourceMode === "nearby" ? devices[1]?.deviceId || selectedDeviceId : selectedDeviceId;
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: useDeviceId ? { deviceId: { exact: useDeviceId } } : true,
-        audio: false,
+      const payload = sourcePayloadForMode();
+      if (!payload) return;
+      const response = await fetch(`${API_BASE}/control/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
-      streamRef.current = stream;
-      rawVideoRef.current.srcObject = stream;
-      setActiveSourceLabel(sourceMode === "nearby" ? "Nearby device" : "Built-in Laptop Camera");
-      setRawFeedStatus("Camera live");
-      setAnalysisFeedStatus(apiOnline ? "Model online" : "Waiting for backend");
+      if (!response.ok) throw new Error("Backend start request failed.");
+      setActiveSourceLabel(payload.label);
+      setRawFeedStatus("Backend raw feed live");
+      setAnalysisFeedStatus("Backend model live");
     } catch (error) {
       setErrorLogs((prev) => [{ createdAt: Date.now(), source: "source-start", message: error.message }, ...prev].slice(0, 30));
     }
   };
 
   const stopSource = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    if (rawVideoRef.current) {
-      rawVideoRef.current.pause();
-      rawVideoRef.current.srcObject = null;
-      rawVideoRef.current.removeAttribute("src");
-      rawVideoRef.current.load();
-    }
+    fetch(`${API_BASE}/control/stop`, { method: "POST" }).catch(() => {});
     setRawFeedStatus("Idle");
     setAnalysisFeedStatus("Waiting");
     setActiveSourceLabel("Not started");
   };
 
-  const onUpload = (event) => {
+  const onUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(`${API_BASE}/control/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) throw new Error("Upload to backend failed.");
+      setActiveSourceLabel(file.name);
+      setRawFeedStatus("Uploaded footage");
+      setAnalysisFeedStatus("Backend model live");
+    } catch (error) {
+      setErrorLogs((prev) => [{ createdAt: Date.now(), source: "upload", message: error.message }, ...prev].slice(0, 30));
     }
-    rawVideoRef.current.srcObject = null;
-    rawVideoRef.current.src = URL.createObjectURL(file);
-    rawVideoRef.current.loop = true;
-    rawVideoRef.current.play().catch(() => {});
-    setActiveSourceLabel(file.name);
-    setRawFeedStatus("Uploaded footage");
-    setAnalysisFeedStatus(apiOnline ? "Model online" : "Waiting for backend");
   };
 
   return (
@@ -382,8 +403,8 @@ function Dashboard({ session, onLogout }) {
                   <span className="pill">{rawFeedStatus}</span>
                 </div>
                 <div className="frame-box">
-                  <video ref={rawVideoRef} autoPlay playsInline muted />
-                  <p className="frame-note">Raw source remains unprocessed so hardware integration is always visible.</p>
+                  <img ref={rawImageRef} alt="Raw backend feed" />
+                  <p className="frame-note">Raw source comes directly from the backend capture pipeline.</p>
                 </div>
               </article>
 
@@ -397,8 +418,8 @@ function Dashboard({ session, onLogout }) {
                 </div>
                 <div className="frame-box">
                   <img ref={analysisImageRef} alt="Model overlay" />
-                  {!apiOnline ? <p className="overlay-warning">Run <code>app.py</code> and <code>api.py</code> to see real YOLO annotations.</p> : null}
-                  <p className="frame-note">This panel uses real annotated backend frames from CrowdGuard, not mock boxes.</p>
+                  {!apiOnline ? <p className="overlay-warning">Run <code>api.py</code> and start a source to see real YOLO annotations.</p> : null}
+                  <p className="frame-note">This panel uses real annotated backend frames from CrowdGuard.</p>
                 </div>
               </article>
             </section>

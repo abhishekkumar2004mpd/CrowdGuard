@@ -9,7 +9,7 @@ from pathlib import Path
 import cv2
 
 from .camera_sources import open_camera
-from .config import CameraConfig, load_config
+from .config import CameraConfig, build_camera_config, load_config
 from .detector import CrowdDetector
 from .logging_utils import AlertLogger
 from .maps import polygon_area_sq_meters, resolve_google_place_metadata
@@ -40,7 +40,7 @@ class CrowdGuardService:
             raise RuntimeError("No cameras are enabled in the configuration.")
 
         for camera in enabled_cameras:
-            self._run_camera(camera)
+            self.run_source(camera)
 
     def _resolve_area(self, camera: CameraConfig) -> float:
         if camera.area.map_polygon:
@@ -58,7 +58,11 @@ class CrowdGuardService:
             camera.area.fallback_area_sq_meters,
         )
 
-    def _run_camera(self, camera: CameraConfig) -> None:
+    def run_runtime_source(self, source_payload: dict, stop_event=None, display_override: bool | None = None) -> None:
+        camera = build_camera_config(source_payload)
+        self.run_source(camera, stop_event=stop_event, display_override=display_override)
+
+    def run_source(self, camera: CameraConfig, stop_event=None, display_override: bool | None = None) -> None:
         opened = open_camera(camera.source_type, camera.source)
         if opened is None:
             print(f"[ERROR] Unable to open camera {camera.camera_id} ({camera.label})")
@@ -68,7 +72,7 @@ class CrowdGuardService:
         area_sq_meters = self._resolve_area(camera)
         frame_skip = max(int(self.processing.get("frame_skip", 1)), 1)
         resize_width = int(self.processing.get("resize_width", 0) or 0)
-        display = bool(self.processing.get("display", True))
+        display = bool(self.processing.get("display", True)) if display_override is None else display_override
         display_max_width = int(self.processing.get("display_max_width", 1600) or 0)
         display_max_height = int(self.processing.get("display_max_height", 900) or 0)
         display_scale = float(self.processing.get("display_scale", 1.0) or 1.0)
@@ -87,6 +91,8 @@ class CrowdGuardService:
 
         frame_index = 0
         while True:
+            if stop_event is not None and stop_event.is_set():
+                break
             ok, frame = cap.read()
             if not ok:
                 print(f"[WARN] Stream ended or frame read failed for {camera.camera_id}")
