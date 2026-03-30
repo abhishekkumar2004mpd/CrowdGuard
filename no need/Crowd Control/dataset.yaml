@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# dataset.yaml  —  YOLO dataset configuration for Crowd-Control fine-tuning
+#
+# Class layout
+#   0 : person  — standing, sitting, walking humans (positive class)
+#   1 : object  — bags, clothing, mannequins, umbrellas (hard negatives)
+#
+# Directory structure expected under  dataset/
+#   dataset/
+#   ├── images/
+#   │   ├── train/   ← 80 % of images
+#   │   └── val/     ← 20 % of images
+#   └── labels/
+#       ├── train/   ← matching .txt annotation files (YOLO format)
+#       └── val/
+#
+# Run  prepare_dataset.py  to download and organise the data automatically.
+# ─────────────────────────────────────────────────────────────────────────────
+
+path: ./dataset          # root of the dataset (relative to this yaml)
+train: images/train      # training images (relative to 'path')
+val:   images/val        # validation images (relative to 'path')
+
+# Number of classes
+nc: 2
+
+# Class names  (index matches YOLO class-id in annotation files)
+names:
+  0: person
+  1: object

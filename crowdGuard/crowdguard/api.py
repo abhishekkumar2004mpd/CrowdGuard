@@ -8,6 +8,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 
+from .camera_sources import discover_backend_sources
 from .service import CrowdGuardService
 
 
@@ -90,6 +91,10 @@ def create_app(status_file: Path, config_path: Path) -> Flask:
     @app.get("/control/state")
     def control_state():
         return jsonify(controller.state())
+
+    @app.get("/control/discover")
+    def control_discover():
+        return jsonify({"sources": discover_backend_sources()})
 
     @app.post("/control/stop")
     def control_stop():

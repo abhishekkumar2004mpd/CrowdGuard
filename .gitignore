@@ -1,0 +1,17 @@
+crowdGuard/api.out.log
+crowdGuard/api.err.log
+crowdGuard/react-ui/vite.out.log
+crowdGuard/react-ui/vite.err.log
+crowdGuard/logs/latest_raw.jpg
+crowdGuard/logs/latest_annotated.jpg
+/yolov8n-pose.pt
+no need/Crowd Control/.venv/
+no need/Crowd Control/.vscode/
+no need/Crowd Control/.yolo_config/
+no need/Crowd Control/__pycache__/
+no need/Crowd Control/dataset/
+no need/Crowd Control/logs/
+no need/Crowd Control/recordings/
+no need/Crowd Control/snapshots/
+no need/Crowd Control/*.log
+no need/__pycache__/

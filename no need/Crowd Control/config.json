@@ -1,0 +1,110 @@
+{
+  "camera_sources": {
+    "webcam": 0
+  },
+  "area_dimensions": {
+    "railway_station_platform1": 150,
+    "railway_station_platform2": 120,
+    "webcam": 20,
+    "test_video": 50,
+    "default": 50
+  },
+  "safe_capacity": {
+    "railway_station_platform1": 300,
+    "railway_station_platform2": 240,
+    "webcam": 20,
+    "test_video": 120,
+    "default": 120
+  },
+  "alert_threshold": 0.85,
+  "critical_threshold": 1.0,
+  "alert_cooldown_seconds": 300,
+  "alert_recipients": [
+    {
+      "name": "Control Room",
+      "email": "control@railway.gov.in",
+      "phone": "+91-XXXXXXXXXX"
+    },
+    {
+      "name": "Station Manager",
+      "email": "manager@railway.gov.in",
+      "phone": "+91-XXXXXXXXXX"
+    },
+    {
+      "name": "Security Head",
+      "email": "security@railway.gov.in",
+      "phone": "+91-XXXXXXXXXX"
+    }
+  ],
+  "email_config": {
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587,
+    "sender_email": "alerts@crowdcontrol.system",
+    "sender_password": "your_app_password_here"
+  },
+  "sms_config": {
+    "api_key": "your_sms_api_key",
+    "api_url": "https://sms-gateway.com/api/send"
+  },
+  "logging": {
+    "log_file": "crowd_alerts.log",
+    "video_recording_enabled": true,
+    "video_output_dir": "./recordings/",
+    "snapshot_on_alert": true,
+    "snapshot_output_dir": "./snapshots/"
+  },
+  "detection_settings": {
+    "confidence_threshold": 0.50,
+    "model_type": "yolov8n-pose.pt",
+    "enable_tracking": true,
+    "tracking_max_age": 30
+  },
+  "density_zones": {
+    "railway_station_platform1": [
+      {
+        "name": "waiting_area",
+        "polygon": [
+          [
+            100,
+            100
+          ],
+          [
+            500,
+            100
+          ],
+          [
+            500,
+            400
+          ],
+          [
+            100,
+            400
+          ]
+        ],
+        "capacity": 150
+      },
+      {
+        "name": "boarding_area",
+        "polygon": [
+          [
+            600,
+            100
+          ],
+          [
+            1000,
+            100
+          ],
+          [
+            1000,
+            400
+          ],
+          [
+            600,
+            400
+          ]
+        ],
+        "capacity": 150
+      }
+    ]
+  }
+}

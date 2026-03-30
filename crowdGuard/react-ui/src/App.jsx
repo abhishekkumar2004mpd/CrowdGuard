@@ -123,14 +123,17 @@ function LoginScreen(props) {
 
 function Dashboard({ session, onLogout }) {
   const [tab, setTab] = useState("overview");
-  const [sourceMode, setSourceMode] = useState("laptop");
-  const [devices, setDevices] = useState([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [sourceMode, setSourceMode] = useState("camera");
+  const [backendSources, setBackendSources] = useState([]);
+  const [selectedSourceId, setSelectedSourceId] = useState("");
+  const [sourceHint, setSourceHint] = useState("Pick a backend-visible camera or switch to CCTV/upload.");
   const [apiOnline, setApiOnline] = useState(false);
   const [metrics, setMetrics] = useState(EMPTY_METRICS);
   const [activeSourceLabel, setActiveSourceLabel] = useState("Not started");
   const [rawFeedStatus, setRawFeedStatus] = useState("Idle");
   const [analysisFeedStatus, setAnalysisFeedStatus] = useState("Waiting");
+  const [rawFrameReady, setRawFrameReady] = useState(false);
+  const [analysisFrameReady, setAnalysisFrameReady] = useState(false);
   const [chartPoints, setChartPoints] = useState([]);
   const [alertLogs, setAlertLogs] = usePersistentState(LOG_KEYS.alerts, []);
   const [nearLimitLogs, setNearLimitLogs] = usePersistentState(LOG_KEYS.nearLimit, []);
@@ -142,14 +145,24 @@ function Dashboard({ session, onLogout }) {
 
   useEffect(() => {
     let mounted = true;
-    navigator.mediaDevices?.enumerateDevices?.().then((all) => {
-      if (!mounted) return;
-      const cams = all.filter((device) => device.kind === "videoinput");
-      setDevices(cams);
-      if (cams[0]) setSelectedDeviceId(cams[0].deviceId);
-    }).catch((err) => {
-      setErrorLogs((prev) => [{ createdAt: Date.now(), source: "devices", message: err.message }, ...prev].slice(0, 30));
-    });
+    fetch(`${API_BASE}/control/discover`)
+      .then((response) => response.json())
+      .then((payload) => {
+        if (!mounted) return;
+        const sources = payload.sources || [];
+        setBackendSources(sources);
+        const firstCamera = sources.find((item) => item.kind === "camera");
+        if (firstCamera) {
+          setSelectedSourceId(firstCamera.camera_id);
+          setSourceMode(firstCamera.kind);
+          setSourceHint(`Backend will open ${firstCamera.label} at ${firstCamera.resolution}.`);
+        } else {
+          setSourceHint("No backend webcam was discovered. Use CCTV or upload footage instead.");
+        }
+      })
+      .catch((err) => {
+        setErrorLogs((prev) => [{ createdAt: Date.now(), source: "discover", message: err.message }, ...prev].slice(0, 30));
+      });
     return () => { mounted = false; };
   }, [setErrorLogs]);
 
@@ -202,6 +215,11 @@ function Dashboard({ session, onLogout }) {
           setActiveSourceLabel(control.source.label);
           setRawFeedStatus("Backend raw feed live");
           setAnalysisFeedStatus("Backend model live");
+        } else {
+          setRawFeedStatus("Idle");
+          setAnalysisFeedStatus("Waiting");
+          setRawFrameReady(false);
+          setAnalysisFrameReady(false);
         }
       } catch {
         // keep existing labels if control state is unavailable
@@ -227,28 +245,26 @@ function Dashboard({ session, onLogout }) {
     return { cpu, ram, software };
   }, [metrics.person_count, errorLogs.length]);
 
-  const sourcePayloadForMode = () => {
-    if (sourceMode === "laptop") {
-      return {
-        camera_id: "frontend_laptop_camera",
-        label: "Inbuilt Laptop Camera",
-        source_type: "webcam",
-        source: 0,
-        enabled: true,
-        area: { name: "Laptop Camera Zone", fallback_area_sq_meters: 80.0, safe_density_per_sq_meter: 2.5 },
-      };
+  const selectedSource = backendSources.find((item) => item.camera_id === selectedSourceId);
+
+  useEffect(() => {
+    if (sourceMode === "camera") {
+      if (selectedSource) {
+        setSourceHint(`Backend will open ${selectedSource.label} at ${selectedSource.resolution}.`);
+      } else {
+        setSourceHint("Pick one of the cameras discovered by the Python backend.");
+      }
+      return;
     }
-    if (sourceMode === "nearby") {
-      return {
-        camera_id: "frontend_nearby_device",
-        label: "Nearby Device",
-        source_type: "bluetooth",
-        source: 1,
-        enabled: true,
-        area: { name: "Nearby Device Zone", fallback_area_sq_meters: 70.0, safe_density_per_sq_meter: 2.3 },
-      };
+    if (sourceMode === "network") {
+      setSourceHint("Use a browser-playable or RTSP CCTV URL so the backend can process the live stream.");
+      return;
     }
-    if (sourceMode === "cctv") {
+    setSourceHint("Upload a video file and CrowdGuard will process it through the backend model.");
+  }, [selectedSource, sourceMode]);
+
+  const sourcePayloadForSelection = () => {
+    if (sourceMode === "network") {
       const url = window.prompt("Enter CCTV stream URL for backend processing.");
       if (!url) return null;
       return {
@@ -260,7 +276,19 @@ function Dashboard({ session, onLogout }) {
         area: { name: "CCTV Zone", fallback_area_sq_meters: 140.0, safe_density_per_sq_meter: 2.2 },
       };
     }
-    return null;
+    if (!selectedSource) return null;
+    return {
+      camera_id: selectedSource.camera_id,
+      label: selectedSource.label,
+      source_type: selectedSource.source_type,
+      source: selectedSource.source,
+      enabled: true,
+      area: {
+        name: selectedSource.label,
+        fallback_area_sq_meters: sourceMode === "camera" ? 80.0 : 70.0,
+        safe_density_per_sq_meter: 2.5,
+      },
+    };
   };
 
   const startSource = async () => {
@@ -269,7 +297,7 @@ function Dashboard({ session, onLogout }) {
         uploadRef.current?.click();
         return;
       }
-      const payload = sourcePayloadForMode();
+      const payload = sourcePayloadForSelection();
       if (!payload) return;
       const response = await fetch(`${API_BASE}/control/start`, {
         method: "POST",
@@ -280,6 +308,8 @@ function Dashboard({ session, onLogout }) {
       setActiveSourceLabel(payload.label);
       setRawFeedStatus("Backend raw feed live");
       setAnalysisFeedStatus("Backend model live");
+      setRawFrameReady(false);
+      setAnalysisFrameReady(false);
     } catch (error) {
       setErrorLogs((prev) => [{ createdAt: Date.now(), source: "source-start", message: error.message }, ...prev].slice(0, 30));
     }
@@ -290,6 +320,8 @@ function Dashboard({ session, onLogout }) {
     setRawFeedStatus("Idle");
     setAnalysisFeedStatus("Waiting");
     setActiveSourceLabel("Not started");
+    setRawFrameReady(false);
+    setAnalysisFrameReady(false);
   };
 
   const onUpload = async (event) => {
@@ -306,6 +338,8 @@ function Dashboard({ session, onLogout }) {
       setActiveSourceLabel(file.name);
       setRawFeedStatus("Uploaded footage");
       setAnalysisFeedStatus("Backend model live");
+      setRawFrameReady(false);
+      setAnalysisFrameReady(false);
     } catch (error) {
       setErrorLogs((prev) => [{ createdAt: Date.now(), source: "upload", message: error.message }, ...prev].slice(0, 30));
     }
@@ -372,21 +406,25 @@ function Dashboard({ session, onLogout }) {
               <div className="field compact">
                 <label>Source Type</label>
                 <select value={sourceMode} onChange={(event) => setSourceMode(event.target.value)}>
-                  <option value="laptop">Inbuilt Laptop Camera</option>
-                  <option value="cctv">Connected CCTV</option>
-                  <option value="nearby">Connect to Nearby Device</option>
+                  <option value="camera">Backend Camera</option>
+                  <option value="network">Connected CCTV</option>
                   <option value="upload">Upload Footage</option>
                 </select>
               </div>
               <div className="field compact">
-                <label>Camera Device</label>
-                <select value={selectedDeviceId} onChange={(event) => setSelectedDeviceId(event.target.value)}>
-                  {devices.map((device, index) => (
-                    <option key={device.deviceId || index} value={device.deviceId}>
-                      {device.label || `Camera ${index + 1}`}
+                <label>Backend Source</label>
+                <select value={selectedSourceId} onChange={(event) => setSelectedSourceId(event.target.value)} disabled={sourceMode !== "camera"}>
+                  {backendSources.filter((item) => item.kind === "camera").map((source) => (
+                    <option key={source.camera_id} value={source.camera_id}>
+                      {source.label} ({source.resolution})
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="source-summary">
+                <span className="source-summary-label">Backend routing</span>
+                <strong>{sourceMode === "camera" ? (selectedSource?.label || "No camera selected") : sourceMode === "network" ? "Connected CCTV" : "Uploaded footage"}</strong>
+                <span>{sourceHint}</span>
               </div>
               <input ref={uploadRef} type="file" accept="video/*" hidden onChange={onUpload} />
               <button className="primary" onClick={startSource}>Start / Select Source</button>
@@ -403,8 +441,21 @@ function Dashboard({ session, onLogout }) {
                   <span className="pill">{rawFeedStatus}</span>
                 </div>
                 <div className="frame-box">
-                  <img ref={rawImageRef} alt="Raw backend feed" />
-                  <p className="frame-note">Raw source comes directly from the backend capture pipeline.</p>
+                  <img
+                    ref={rawImageRef}
+                    alt="Raw backend feed"
+                    onLoad={() => setRawFrameReady(true)}
+                    onError={() => {
+                      setRawFrameReady(false);
+                      setRawFeedStatus("No backend frame yet");
+                    }}
+                  />
+                  {!rawFrameReady ? (
+                    <div className="feed-placeholder">
+                      <strong>{rawFeedStatus}</strong>
+                      <span>Raw source comes directly from the backend capture pipeline.</span>
+                    </div>
+                  ) : null}
                 </div>
               </article>
 
@@ -417,7 +468,21 @@ function Dashboard({ session, onLogout }) {
                   <span className={`pill ${apiOnline ? "online" : ""}`}>{analysisFeedStatus}</span>
                 </div>
                 <div className="frame-box">
-                  <img ref={analysisImageRef} alt="Model overlay" />
+                  <img
+                    ref={analysisImageRef}
+                    alt="Model overlay"
+                    onLoad={() => setAnalysisFrameReady(true)}
+                    onError={() => {
+                      setAnalysisFrameReady(false);
+                      setAnalysisFeedStatus("Waiting for model output");
+                    }}
+                  />
+                  {!analysisFrameReady ? (
+                    <div className="feed-placeholder">
+                      <strong>{analysisFeedStatus}</strong>
+                      <span>Analysis feed mirrors the live CrowdGuard YOLO output from the backend.</span>
+                    </div>
+                  ) : null}
                   {!apiOnline ? <p className="overlay-warning">Run <code>api.py</code> and start a source to see real YOLO annotations.</p> : null}
                   <p className="frame-note">This panel uses real annotated backend frames from CrowdGuard.</p>
                 </div>

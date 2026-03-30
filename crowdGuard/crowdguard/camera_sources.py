@@ -39,3 +39,45 @@ def open_camera(source_type: str, source: Any) -> OpenedCamera | None:
             return OpenedCamera(capture=cap, resolved_source=candidate)
         cap.release()
     return None
+
+
+def discover_backend_sources(max_webcams: int = 5) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    for index in range(max_webcams):
+        cap = cv2.VideoCapture(index)
+        if cap.isOpened():
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            sources.append(
+                {
+                    "camera_id": f"backend_webcam_{index}",
+                    "label": f"Backend Camera {index}",
+                    "source_type": "webcam",
+                    "source": index,
+                    "kind": "camera",
+                    "resolution": f"{width}x{height}" if width and height else "unknown",
+                }
+            )
+        cap.release()
+
+    sources.extend(
+        [
+            {
+                "camera_id": "backend_cctv_stream",
+                "label": "Connected CCTV Stream",
+                "source_type": "rtsp",
+                "source": "",
+                "kind": "network",
+                "resolution": "network-defined",
+            },
+            {
+                "camera_id": "backend_upload",
+                "label": "Uploaded Footage",
+                "source_type": "file",
+                "source": "",
+                "kind": "upload",
+                "resolution": "file-defined",
+            },
+        ]
+    )
+    return sources
