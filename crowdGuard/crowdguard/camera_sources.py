@@ -10,6 +10,8 @@ import cv2
 class OpenedCamera:
     capture: cv2.VideoCapture
     resolved_source: Any
+    source_type: str
+    is_live: bool
 
 
 def build_source_candidates(source_type: str, source: Any) -> list[Any]:
@@ -33,10 +35,21 @@ def build_source_candidates(source_type: str, source: Any) -> list[Any]:
 
 
 def open_camera(source_type: str, source: Any) -> OpenedCamera | None:
+    normalized_type = (source_type or "webcam").lower()
     for candidate in build_source_candidates(source_type, source):
-        cap = cv2.VideoCapture(candidate)
+        if normalized_type in {"webcam", "usb", "bluetooth", "wireless"} and isinstance(candidate, int):
+            cap = cv2.VideoCapture(candidate, cv2.CAP_DSHOW)
+        else:
+            cap = cv2.VideoCapture(candidate)
         if cap.isOpened():
-            return OpenedCamera(capture=cap, resolved_source=candidate)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            is_live = normalized_type not in {"file"}
+            return OpenedCamera(
+                capture=cap,
+                resolved_source=candidate,
+                source_type=normalized_type,
+                is_live=is_live,
+            )
         cap.release()
     return None
 

@@ -46,6 +46,10 @@ class CrowdDetector:
         iou_threshold: float = 0.45,
         min_keypoints: int = 5,
         min_keypoint_confidence: float = 0.35,
+        partial_min_keypoints: int = 3,
+        partial_confidence_threshold: float = 0.55,
+        min_bbox_height: int = 40,
+        box_only_confidence_threshold: float = 0.72,
     ):
         package_root = Path(__file__).resolve().parents[1]
         os.environ.setdefault("YOLO_CONFIG_DIR", str(package_root / ".yolo_config"))
@@ -54,15 +58,20 @@ class CrowdDetector:
         self.iou_threshold = iou_threshold
         self.min_keypoints = min_keypoints
         self.min_keypoint_confidence = min_keypoint_confidence
+        self.partial_min_keypoints = partial_min_keypoints
+        self.partial_confidence_threshold = partial_confidence_threshold
+        self.min_bbox_height = min_bbox_height
+        self.box_only_confidence_threshold = box_only_confidence_threshold
         self.model = YOLO(model_path)
         self._line_zones: dict[str, sv.LineZone] = {}
 
-    def detect(self, frame: np.ndarray) -> list[Detection]:
+    def detect(self, frame: np.ndarray, imgsz: int = 640) -> list[Detection]:
         results = self.model(
             frame,
             classes=[0],
             conf=self.confidence_threshold,
             iou=self.iou_threshold,
+            imgsz=imgsz,
             verbose=False,
         )
         detections: list[Detection] = []
@@ -74,11 +83,12 @@ class CrowdDetector:
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                 confidence = float(box.conf[0].cpu().numpy())
                 pose_points, pose_confidences = self._extract_keypoints(keypoints, index)
-                if not self._passes_pose_threshold(pose_points, pose_confidences):
+                bbox = [int(x1), int(y1), int(x2), int(y2)]
+                if not self._passes_pose_threshold(bbox, confidence, pose_points, pose_confidences):
                     continue
                 detections.append(
                     Detection(
-                        bbox=[int(x1), int(y1), int(x2), int(y2)],
+                        bbox=bbox,
                         confidence=confidence,
                         keypoints=pose_points,
                         keypoint_confidences=pose_confidences,
@@ -128,11 +138,12 @@ class CrowdDetector:
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                 confidence = float(box.conf[0].cpu().numpy())
                 pose_points, pose_confidences = self._extract_keypoints(keypoints, index)
-                if not self._passes_pose_threshold(pose_points, pose_confidences):
+                bbox = [int(x1), int(y1), int(x2), int(y2)]
+                if not self._passes_pose_threshold(bbox, confidence, pose_points, pose_confidences):
                     continue
                 detections.append(
                     Detection(
-                        bbox=[int(x1), int(y1), int(x2), int(y2)],
+                        bbox=bbox,
                         confidence=confidence,
                         keypoints=pose_points,
                         keypoint_confidences=pose_confidences,
@@ -189,15 +200,22 @@ class CrowdDetector:
 
     def _passes_pose_threshold(
         self,
+        bbox: list[int],
+        confidence: float,
         keypoints: list[tuple[int, int]] | None,
         confidences: list[float] | None,
     ) -> bool:
         if not keypoints or not confidences:
+            return confidence >= self.box_only_confidence_threshold
+
+        x1, y1, x2, y2 = bbox
+        bbox_height = max(0, y2 - y1)
+        bbox_width = max(0, x2 - x1)
+        if bbox_height < self.min_bbox_height:
             return False
+        aspect_ratio = (bbox_width / bbox_height) if bbox_height else 0
 
         visible = sum(1 for value in confidences if value >= self.min_keypoint_confidence)
-        if visible < self.min_keypoints:
-            return False
 
         eye_indices = (1, 2)
         shoulder_indices = (5, 6)
@@ -207,7 +225,22 @@ class CrowdDetector:
         shoulder_visible = any(confidences[index] >= self.min_keypoint_confidence for index in shoulder_indices)
         arm_visible = any(confidences[index] >= self.min_keypoint_confidence for index in arm_indices)
 
-        return shoulder_visible and (eye_visible or arm_visible)
+        if visible >= self.min_keypoints and shoulder_visible and (eye_visible or arm_visible):
+            return True
+
+        # Relax the filter for crowded or partially occluded people:
+        # if shoulders plus a small number of visible points are present and
+        # the box confidence is stronger, keep the detection instead of
+        # dropping it entirely.
+        return (
+            visible >= self.partial_min_keypoints
+            and shoulder_visible
+            and confidence >= self.partial_confidence_threshold
+        ) or (
+            confidence >= self.box_only_confidence_threshold
+            and bbox_height >= int(self.min_bbox_height * 1.5)
+            and 0.18 <= aspect_ratio <= 1.2
+        )
 
     def draw(self, frame: np.ndarray, detections: list[Detection], color: tuple[int, int, int]) -> np.ndarray:
         output = frame.copy()

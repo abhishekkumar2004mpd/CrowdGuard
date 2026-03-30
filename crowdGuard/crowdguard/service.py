@@ -28,6 +28,10 @@ class CrowdGuardService:
             iou_threshold=float(model_config.get("iou_threshold", 0.45)),
             min_keypoints=int(model_config.get("min_keypoints", 5)),
             min_keypoint_confidence=float(model_config.get("min_keypoint_confidence", 0.35)),
+            partial_min_keypoints=int(model_config.get("partial_min_keypoints", 3)),
+            partial_confidence_threshold=float(model_config.get("partial_confidence_threshold", 0.55)),
+            min_bbox_height=int(model_config.get("min_bbox_height", 40)),
+            box_only_confidence_threshold=float(model_config.get("box_only_confidence_threshold", 0.72)),
         )
         self.processing = self.config.processing
         self.risk_rules = self.config.risk_rules
@@ -75,13 +79,17 @@ class CrowdGuardService:
 
         cap = opened.capture
         area_sq_meters = self._resolve_area(camera)
-        frame_skip = max(int(self.processing.get("frame_skip", 1)), 1)
+        live_frame_skip = max(int(self.processing.get("live_frame_skip", self.processing.get("frame_skip", 1))), 1)
+        file_frame_skip = max(int(self.processing.get("file_frame_skip", 1)), 1)
         resize_width = int(self.processing.get("resize_width", 0) or 0)
+        live_detect_imgsz = int(self.processing.get("live_detect_imgsz", self.processing.get("detect_imgsz", 640)) or 640)
+        file_detect_imgsz = int(self.processing.get("file_detect_imgsz", max(live_detect_imgsz, 960)) or max(live_detect_imgsz, 960))
         display = bool(self.processing.get("display", True)) if display_override is None else display_override
         display_max_width = int(self.processing.get("display_max_width", 1600) or 0)
         display_max_height = int(self.processing.get("display_max_height", 900) or 0)
         display_scale = float(self.processing.get("display_scale", 1.0) or 1.0)
         cooldown_seconds = float(self.processing.get("cooldown_seconds", 120))
+        live_buffer_drop_frames = max(int(self.processing.get("live_buffer_drop_frames", 2)), 0)
         tracking_config = self.processing.get("tracking", {})
         snapshot_seconds = float(self.processing.get("snapshot_interval_seconds", 1800))
         warning_threshold = float(self.risk_rules.get("warning_threshold", 0.85))
@@ -89,6 +97,10 @@ class CrowdGuardService:
         safe_density_per_sq_meter = float(
             camera.area.safe_density_per_sq_meter or self.risk_rules.get("safe_density_per_sq_meter", 2.5)
         )
+
+        frame_skip = live_frame_skip if opened.is_live else file_frame_skip
+        detect_imgsz = live_detect_imgsz if opened.is_live else file_detect_imgsz
+        tracking_enabled = bool(tracking_config.get("enabled", False)) and (opened.is_live or bool(tracking_config.get("enable_for_files", False)))
 
         print(
             f"[INFO] Camera {camera.camera_id} opened from {opened.resolved_source}. "
@@ -99,7 +111,7 @@ class CrowdGuardService:
         while True:
             if stop_event is not None and stop_event.is_set():
                 break
-            ok, frame = cap.read()
+            ok, frame = self._read_frame(opened, live_buffer_drop_frames)
             if not ok:
                 print(f"[WARN] Stream ended or frame read failed for {camera.camera_id}")
                 break
@@ -113,18 +125,18 @@ class CrowdGuardService:
                 frame = cv2.resize(frame, (resize_width, int(frame.shape[0] * scale)))
 
             try:
-                if tracking_config.get("enabled", False):
+                if tracking_enabled:
                     tracking = self.detector.track(
                         frame,
                         camera.camera_id,
                         line_zone_config=tracking_config.get("line_zone", {}),
-                        imgsz=int(tracking_config.get("imgsz", 640)),
+                        imgsz=int(tracking_config.get("imgsz", detect_imgsz if opened.is_live else file_detect_imgsz)),
                     )
                     detections = tracking.detections
                     in_count = tracking.in_count
                     out_count = tracking.out_count
                 else:
-                    detections = self.detector.detect(frame)
+                    detections = self.detector.detect(frame, imgsz=detect_imgsz)
                     in_count = 0
                     out_count = 0
                 risk = evaluate_risk(
@@ -157,6 +169,15 @@ class CrowdGuardService:
 
         cap.release()
         cv2.destroyAllWindows()
+
+    @staticmethod
+    def _read_frame(opened, live_buffer_drop_frames: int):
+        cap = opened.capture
+        if opened.is_live and live_buffer_drop_frames > 0:
+            for _ in range(live_buffer_drop_frames):
+                if not cap.grab():
+                    break
+        return cap.read()
 
     @staticmethod
     def _resize_for_display(frame, max_width: int, max_height: int, scale: float):

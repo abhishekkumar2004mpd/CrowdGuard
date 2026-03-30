@@ -22,15 +22,34 @@ class RiskEngineTests(unittest.TestCase):
         detector = CrowdDetector.__new__(CrowdDetector)
         detector.min_keypoints = 5
         detector.min_keypoint_confidence = 0.35
+        detector.partial_min_keypoints = 3
+        detector.partial_confidence_threshold = 0.55
+        detector.min_bbox_height = 40
+        detector.box_only_confidence_threshold = 0.72
 
         confidences = [0.0] * 17
         for index in (1, 2, 5, 6, 7):
             confidences[index] = 0.9
 
-        self.assertTrue(detector._passes_pose_threshold([(0, 0)] * 17, confidences))
+        self.assertTrue(detector._passes_pose_threshold([0, 0, 80, 120], 0.9, [(0, 0)] * 17, confidences))
         confidences[5] = 0.1
         confidences[6] = 0.1
-        self.assertFalse(detector._passes_pose_threshold([(0, 0)] * 17, confidences))
+        self.assertFalse(detector._passes_pose_threshold([0, 0, 80, 120], 0.5, [(0, 0)] * 17, confidences))
+
+    def test_pose_threshold_allows_partial_pose_for_occluded_people(self):
+        detector = CrowdDetector.__new__(CrowdDetector)
+        detector.min_keypoints = 5
+        detector.min_keypoint_confidence = 0.35
+        detector.partial_min_keypoints = 3
+        detector.partial_confidence_threshold = 0.55
+        detector.min_bbox_height = 32
+        detector.box_only_confidence_threshold = 0.72
+
+        confidences = [0.0] * 17
+        for index in (5, 6, 7):
+            confidences[index] = 0.8
+
+        self.assertTrue(detector._passes_pose_threshold([0, 0, 60, 90], 0.7, [(0, 0)] * 17, confidences))
 
 
 if __name__ == "__main__":

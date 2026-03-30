@@ -6,19 +6,29 @@
   },
   "model": {
     "model_path": "../Crowd Control/yolov8n-pose.pt",
-    "confidence_threshold": 0.45,
+    "confidence_threshold": 0.3,
     "iou_threshold": 0.45,
-    "min_keypoints": 5,
-    "min_keypoint_confidence": 0.35,
+    "min_keypoints": 4,
+    "min_keypoint_confidence": 0.25,
+    "partial_min_keypoints": 3,
+    "partial_confidence_threshold": 0.45,
+    "min_bbox_height": 32,
+    "box_only_confidence_threshold": 0.68,
     "device": "cpu",
     "classes": [
       0
     ]
   },
   "processing": {
-    "frame_skip": 2,
+    "frame_skip": 1,
+    "live_frame_skip": 1,
+    "file_frame_skip": 1,
     "resize_width": 1280,
     "target_fps": 12,
+    "detect_imgsz": 640,
+    "live_detect_imgsz": 512,
+    "file_detect_imgsz": 960,
+    "live_buffer_drop_frames": 4,
     "display": true,
     "display_scale": 1.25,
     "display_max_width": 1600,
@@ -27,7 +37,8 @@
     "snapshot_interval_seconds": 1800,
     "tracking": {
       "enabled": true,
-      "imgsz": 640,
+      "imgsz": 512,
+      "enable_for_files": false,
       "line_zone": {
         "enabled": true,
         "start_ratio": [

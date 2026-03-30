@@ -58,7 +58,7 @@ function App() {
   const [session, setSession] = usePersistentState(STORAGE_KEY, null);
   const normalizedSession = session
     ? {
-        name: session.name || session.username || "CrowdGuard User",
+        name: session.name || session.username || "CrowdCtrl User",
         email: session.email || "",
         role: session.role || "viewer",
         loginAt: session.loginAt || Date.now(),
@@ -172,7 +172,7 @@ function LoginScreen({ onSession }) {
       <section className="login-brand-panel">
         <h1 className="brand-title">
           <span className="brand-title-crowd">Crowd</span>
-          <span className="brand-title-guard">Guard</span>
+          <span className="brand-title-guard">Ctrl</span>
         </h1>
       </section>
 
@@ -222,7 +222,7 @@ function LoginScreen({ onSession }) {
             </div>
             {view === "signin" ? (
               <button className="primary" onClick={submitLogin} disabled={submitting}>
-                {submitting ? "Signing In..." : "Enter CrowdGuard"}
+                {submitting ? "Signing In..." : "Enter CrowdCtrl"}
               </button>
             ) : (
               <button className="primary" onClick={submitSignup} disabled={submitting}>
@@ -239,7 +239,7 @@ function LoginScreen({ onSession }) {
             <button className="primary" onClick={forgotPassword} disabled={submitting}>
               {submitting ? "Sending..." : "Send Reset Request"}
             </button>
-            <p className="helper-text">CrowdGuard will notify the default admin mail: {DEFAULT_ADMIN_EMAIL}</p>
+            <p className="helper-text">CrowdCtrl will notify the default admin mail: {DEFAULT_ADMIN_EMAIL}</p>
           </>
         )}
 
@@ -273,6 +273,7 @@ function Dashboard({ session, onLogout }) {
   const rawImageRef = useRef(null);
   const analysisImageRef = useRef(null);
   const uploadRef = useRef(null);
+  const frameTimerRef = useRef(null);
 
   useEffect(() => {
     let mounted = true;
@@ -298,7 +299,7 @@ function Dashboard({ session, onLogout }) {
   }, []);
 
   useEffect(() => {
-    const timer = setInterval(async () => {
+    const statusTimer = setInterval(async () => {
       try {
         const health = await apiJson("/health");
         setApiOnline(health.status === "ok");
@@ -345,6 +346,9 @@ function Dashboard({ session, onLogout }) {
         // keep previous state
       }
 
+    }, 1000);
+
+    const logTimer = setInterval(async () => {
       try {
         const [alerts, snapshots, errors, resets] = await Promise.all([
           apiJson("/logs/alerts"),
@@ -368,17 +372,36 @@ function Dashboard({ session, onLogout }) {
           setPendingUsers([]);
         }
       }
+    }, 5000);
 
+    return () => {
+      clearInterval(statusTimer);
+      clearInterval(logTimer);
+    };
+  }, [session.role]);
+
+  useEffect(() => {
+    const refreshFrames = () => {
+      if (document.hidden) {
+        return;
+      }
       if (rawImageRef.current) {
         rawImageRef.current.src = `${API_BASE}/frame/raw?ts=${Date.now()}`;
       }
       if (analysisImageRef.current) {
         analysisImageRef.current.src = `${API_BASE}/frame/annotated?ts=${Date.now()}`;
       }
-    }, 3000);
+    };
 
-    return () => clearInterval(timer);
-  }, [session.role]);
+    refreshFrames();
+    frameTimerRef.current = setInterval(refreshFrames, 250);
+
+    return () => {
+      if (frameTimerRef.current) {
+        clearInterval(frameTimerRef.current);
+      }
+    };
+  }, []);
 
   const summary = useMemo(() => {
     const cpu = `${Math.min(95, Math.max(10, metrics.person_count * 2))}%`;
@@ -404,7 +427,7 @@ function Dashboard({ session, onLogout }) {
       setSourceHint("Use a browser-playable or RTSP CCTV URL so the backend can process the live stream.");
       return;
     }
-    setSourceHint("Upload a video file and CrowdGuard will process it through the backend model.");
+    setSourceHint("Upload a video file and CrowdCtrl will process it through the backend model.");
   }, [selectedSource, sourceMode]);
 
   const sourcePayloadForSelection = () => {
@@ -508,7 +531,7 @@ function Dashboard({ session, onLogout }) {
         <div className="brand-cluster">
           <div className={`brand-badge ${session.role === "admin" ? "admin" : ""}`}>CG</div>
           <div>
-            <div className="brand-name">CrowdGuard</div>
+            <div className="brand-name">CrowdCtrl</div>
             <div className="brand-tag">{session.role === "admin" ? "Administrator console" : "Crowd risk monitoring"}</div>
           </div>
         </div>
@@ -537,7 +560,7 @@ function Dashboard({ session, onLogout }) {
       <main className="react-main">
         <header className="hero-top">
           <div>
-            <p className="eyebrow">{session.role === "admin" ? "CrowdGuard Admin" : "CrowdGuard Control"}</p>
+            <p className="eyebrow">{session.role === "admin" ? "CrowdCtrl Admin" : "CrowdCtrl Control"}</p>
             <h1>{session.role === "admin" ? "Admin monitoring, approvals & system health" : "Dual-feed monitoring dashboard"}</h1>
           </div>
           <div className="hero-status">
@@ -637,11 +660,11 @@ function Dashboard({ session, onLogout }) {
                   {!analysisFrameReady ? (
                     <div className="feed-placeholder">
                       <strong>{analysisFeedStatus}</strong>
-                      <span>Analysis feed mirrors the live CrowdGuard YOLO output from the backend.</span>
+                      <span>Analysis feed mirrors the live CrowdCtrl YOLO output from the backend.</span>
                     </div>
                   ) : null}
                   {!apiOnline ? <p className="overlay-warning">Run <code>api.py</code> and start a source to see real YOLO annotations.</p> : null}
-                  <p className="frame-note">This panel uses real annotated backend frames from CrowdGuard.</p>
+                  <p className="frame-note">This panel uses real annotated backend frames from CrowdCtrl.</p>
                 </div>
               </article>
             </section>
