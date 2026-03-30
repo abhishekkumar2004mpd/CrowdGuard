@@ -15,6 +15,8 @@ class AlertLogger:
         self.warning_csv = self.log_dir / "stampede_warning_alerts.csv"
         self.critical_csv = self.log_dir / "stampede_critical_alerts.csv"
         self.metrics_csv = self.log_dir / f"crowd_metrics_{datetime.now().strftime('%Y-%m-%d')}.csv"
+        self.snapshot_csv = self.log_dir / f"system_snapshots_{datetime.now().strftime('%Y-%m-%d')}.csv"
+        self.error_csv = self.log_dir / f"system_errors_{datetime.now().strftime('%Y-%m-%d')}.csv"
         self.status_json = self.log_dir / "latest_status.json"
         self.raw_frame_path = self.log_dir / "latest_raw.jpg"
         self.annotated_frame_path = self.log_dir / "latest_annotated.jpg"
@@ -33,6 +35,14 @@ class AlertLogger:
             self.metrics_csv,
             ["timestamp", "camera_id", "camera_label", "person_count", "safe_capacity", "occupancy_ratio", "density", "area_sq_meters", "in_count", "out_count", "status"],
         )
+        self._ensure_csv(
+            self.snapshot_csv,
+            ["timestamp", "camera_id", "camera_label", "person_count", "density", "error_count", "last_error", "status"],
+        )
+        self._ensure_csv(
+            self.error_csv,
+            ["timestamp", "camera_id", "camera_label", "stage", "message"],
+        )
 
     @staticmethod
     def _ensure_csv(path: Path, header: list[str]) -> None:
@@ -48,6 +58,14 @@ class AlertLogger:
     def log_alert(self, severity: str, row: list[object]) -> None:
         target = self.warning_csv if severity == "warning" else self.critical_csv
         with target.open("a", newline="", encoding="utf-8") as handle:
+            csv.writer(handle).writerow(row)
+
+    def log_snapshot(self, row: list[object]) -> None:
+        with self.snapshot_csv.open("a", newline="", encoding="utf-8") as handle:
+            csv.writer(handle).writerow(row)
+
+    def log_error(self, row: list[object]) -> None:
+        with self.error_csv.open("a", newline="", encoding="utf-8") as handle:
             csv.writer(handle).writerow(row)
 
     def write_status(self, payload: dict[str, object]) -> None:

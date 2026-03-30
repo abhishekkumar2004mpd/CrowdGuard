@@ -9,6 +9,7 @@ from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 
 from .camera_sources import discover_backend_sources
+from .mongo_store import MongoStore
 from .service import CrowdGuardService
 
 
@@ -61,10 +62,18 @@ def create_app(status_file: Path, config_path: Path) -> Flask:
     upload_dir = status_file.parent / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
     controller = MonitorController(config_path=config_path, status_file=status_file)
+    store = MongoStore()
 
     @app.get("/health")
     def health():
-        return jsonify({"status": "ok", "monitor_running": controller.is_running()})
+        return jsonify(
+            {
+                "status": "ok",
+                "monitor_running": controller.is_running(),
+                "mongodb": "connected",
+                "default_admin_email": store.default_admin_email,
+            }
+        )
 
     @app.get("/status")
     def status():
@@ -125,6 +134,71 @@ def create_app(status_file: Path, config_path: Path) -> Flask:
             },
         }
         return jsonify(controller.start(source_payload))
+
+    @app.post("/auth/login")
+    def auth_login():
+        payload = request.get_json(force=True)
+        try:
+            user = store.login(payload.get("email", ""), payload.get("password", ""))
+        except ValueError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+        return jsonify({"status": "ok", "user": user})
+
+    @app.post("/auth/request-access")
+    def auth_request_access():
+        payload = request.get_json(force=True)
+        try:
+            result = store.request_viewer_access(
+                payload.get("name", ""),
+                payload.get("email", ""),
+                payload.get("password", ""),
+            )
+        except ValueError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+        return jsonify(result)
+
+    @app.post("/auth/signup")
+    def auth_signup():
+        payload = request.get_json(force=True)
+        try:
+            result = store.create_user(
+                payload.get("name", ""),
+                payload.get("email", ""),
+                payload.get("password", ""),
+                payload.get("role", "viewer"),
+            )
+        except ValueError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+        return jsonify(result)
+
+    @app.post("/auth/forgot-password")
+    def auth_forgot_password():
+        payload = request.get_json(force=True)
+        try:
+            result = store.request_password_reset(payload.get("email", ""))
+        except ValueError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+        return jsonify(result)
+
+    @app.get("/auth/pending-viewers")
+    def auth_pending_viewers():
+        return jsonify({"items": store.get_pending_viewers()})
+
+    @app.post("/auth/approve-viewer")
+    def auth_approve_viewer():
+        payload = request.get_json(force=True)
+        try:
+            result = store.approve_viewer(payload.get("email", ""), payload.get("admin_email", ""))
+        except ValueError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+        return jsonify(result)
+
+    @app.get("/logs/<collection>")
+    def get_logs(collection: str):
+        if collection not in {"alerts", "metrics", "errors", "password_resets", "activity"}:
+            return jsonify({"status": "error", "message": "Unknown log collection."}), 404
+        limit = min(int(request.args.get("limit", 50)), 200)
+        return jsonify({"items": store.get_logs(collection, limit=limit)})
 
     return app
 

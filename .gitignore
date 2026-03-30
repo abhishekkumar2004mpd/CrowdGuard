@@ -4,6 +4,7 @@ crowdGuard/react-ui/vite.out.log
 crowdGuard/react-ui/vite.err.log
 crowdGuard/logs/latest_raw.jpg
 crowdGuard/logs/latest_annotated.jpg
+crowdGuard/logs/uploads/
 /yolov8n-pose.pt
 no need/Crowd Control/.venv/
 no need/Crowd Control/.vscode/

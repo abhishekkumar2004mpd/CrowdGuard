@@ -1,18 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const STORAGE_KEY = "crowdguard_react_session";
-const LOG_KEYS = {
-  alerts: "crowdguard_react_alert_logs",
-  nearLimit: "crowdguard_react_near_limit_logs",
-  errors: "crowdguard_react_error_logs",
-};
-
-const USERS = {
-  user: { password: "user123", role: "viewer" },
-  admin: { password: "admin123", role: "admin" },
-};
-
 const API_BASE = "http://127.0.0.1:5001";
+const DEFAULT_ADMIN_EMAIL = "2306252@kiit.ac.in";
 
 const EMPTY_METRICS = {
   person_count: 0,
@@ -52,70 +42,209 @@ function timeText(value) {
   return new Date(value).toLocaleTimeString();
 }
 
-function App() {
-  const [session, setSession] = usePersistentState(STORAGE_KEY, null);
-  const [mode, setMode] = useState("viewer");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-
-  if (!session) {
-    return (
-      <LoginScreen
-        mode={mode}
-        setMode={setMode}
-        username={username}
-        setUsername={setUsername}
-        password={password}
-        setPassword={setPassword}
-        error={error}
-        onLogin={() => {
-          const account = USERS[username.trim()];
-          if (!account || account.password !== password || account.role !== mode) {
-            setError("Invalid credentials for the selected role.");
-            return;
-          }
-          setSession({ username: username.trim(), role: account.role, loginAt: Date.now() });
-          setError("");
-        }}
-      />
-    );
+async function apiJson(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.message || "Request failed.");
   }
-
-  return <Dashboard session={session} onLogout={() => setSession(null)} />;
+  return payload;
 }
 
-function LoginScreen(props) {
+function App() {
+  const [session, setSession] = usePersistentState(STORAGE_KEY, null);
+  const normalizedSession = session
+    ? {
+        name: session.name || session.username || "CrowdGuard User",
+        email: session.email || "",
+        role: session.role || "viewer",
+        loginAt: session.loginAt || Date.now(),
+      }
+    : null;
+
+  if (!normalizedSession) {
+    return <LoginScreen onSession={setSession} />;
+  }
+
+  return <Dashboard session={normalizedSession} onLogout={() => setSession(null)} />;
+}
+
+function LoginScreen({ onSession }) {
+  const [view, setView] = useState("signin");
+  const [role, setRole] = useState("viewer");
+  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const setField = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const submitLogin = async () => {
+    setSubmitting(true);
+    setError("");
+    setMessage("");
+    try {
+      const payload = await apiJson("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
+        }),
+      });
+      onSession({ ...payload.user, loginAt: Date.now() });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const requestAccess = async () => {
+    setSubmitting(true);
+    setError("");
+    setMessage("");
+    try {
+      const payload = await apiJson("/auth/request-access", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          password: form.password,
+        }),
+      });
+      setMessage(payload.message);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitSignup = async () => {
+    setSubmitting(true);
+    setError("");
+    setMessage("");
+    try {
+      const payload = await apiJson("/auth/signup", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          role,
+        }),
+      });
+      setMessage(`${payload.user.role === "admin" ? "Admin" : "Viewer"} account created. You can sign in now.`);
+      setView("signin");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const forgotPassword = async () => {
+    setSubmitting(true);
+    setError("");
+    setMessage("");
+    try {
+      const payload = await apiJson("/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      setMessage(payload.message);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="login-shell">
-      <section className="hero-card">
-        <p className="eyebrow">CrowdGuard React UI</p>
-        <h1>Modern control room UI for live crowd intelligence.</h1>
-        <p className="hero-copy">
-          This React layer consumes the existing CrowdGuard model API and keeps admin/viewer sessions stable across reloads.
-        </p>
+      <section className="login-brand-panel">
+        <h1 className="brand-title">
+          <span className="brand-title-crowd">Crowd</span>
+          <span className="brand-title-guard">Guard</span>
+        </h1>
       </section>
 
-      <section className="login-card">
-        <div className="mode-switch">
-          <button className={props.mode === "viewer" ? "active" : ""} onClick={() => props.setMode("viewer")}>Viewer</button>
-          <button className={props.mode === "admin" ? "active" : ""} onClick={() => props.setMode("admin")}>Admin</button>
+      <section className="login-card glass-card">
+        <div className="mode-switch dual role-switch" data-active={role}>
+          <button className={role === "viewer" ? "active" : ""} onClick={() => setRole("viewer")}>Viewer</button>
+          <button className={role === "admin" ? "active" : ""} onClick={() => setRole("admin")}>Admin</button>
         </div>
 
-        <div className="field">
-          <label>Username</label>
-          <input value={props.username} onChange={(event) => props.setUsername(event.target.value)} />
+        <div className="mode-switch triple auth-switch" data-active={view}>
+          <button className={view === "signin" ? "active" : ""} onClick={() => setView("signin")}>Sign in</button>
+          <button className={view === "signup" ? "active" : ""} onClick={() => setView("signup")}>Sign up</button>
+          <button className={view === "forgot" ? "active" : ""} onClick={() => setView("forgot")}>Forgot Password</button>
         </div>
-        <div className="field">
-          <label>Password</label>
-          <input type="password" value={props.password} onChange={(event) => props.setPassword(event.target.value)} />
-        </div>
-        {props.error ? <div className="banner critical">{props.error}</div> : null}
-        <button className="primary" onClick={props.onLogin}>Enter CrowdGuard</button>
-        <div className="credentials-card">
-          <div><code>user / user123</code></div>
-          <div><code>admin / admin123</code></div>
-        </div>
+
+        {view !== "forgot" ? (
+          <>
+            {view === "signup" ? (
+              <div className="field">
+                <label>Full Name</label>
+                <input value={form.name} onChange={(event) => setField("name", event.target.value)} />
+              </div>
+            ) : null}
+            <div className="field">
+              <label>Email</label>
+              <input value={form.email} onChange={(event) => setField("email", event.target.value)} placeholder="name@example.com" />
+            </div>
+            <div className="field">
+              <label>Password</label>
+              <div className="password-row">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={form.password}
+                  onChange={(event) => setField("password", event.target.value)}
+                />
+                <button
+                  className={`visibility-toggle ${showPassword ? "active" : ""}`}
+                  type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowPassword((prev) => !prev)}
+                >
+                  <span className="visibility-track">
+                    <span className="visibility-thumb" />
+                  </span>
+                </button>
+              </div>
+            </div>
+            {view === "signin" ? (
+              <button className="primary" onClick={submitLogin} disabled={submitting}>
+                {submitting ? "Signing In..." : "Enter CrowdGuard"}
+              </button>
+            ) : (
+              <button className="primary" onClick={submitSignup} disabled={submitting}>
+                {submitting ? "Creating..." : `Create ${role === "admin" ? "Admin" : "Viewer"} Account`}
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="field">
+              <label>Account Email</label>
+              <input value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} placeholder="name@example.com" />
+            </div>
+            <button className="primary" onClick={forgotPassword} disabled={submitting}>
+              {submitting ? "Sending..." : "Send Reset Request"}
+            </button>
+            <p className="helper-text">CrowdGuard will notify the default admin mail: {DEFAULT_ADMIN_EMAIL}</p>
+          </>
+        )}
+
+        {message ? <div className="banner neutral">{message}</div> : null}
+        {error ? <div className="banner critical">{error}</div> : null}
       </section>
     </div>
   );
@@ -135,9 +264,11 @@ function Dashboard({ session, onLogout }) {
   const [rawFrameReady, setRawFrameReady] = useState(false);
   const [analysisFrameReady, setAnalysisFrameReady] = useState(false);
   const [chartPoints, setChartPoints] = useState([]);
-  const [alertLogs, setAlertLogs] = usePersistentState(LOG_KEYS.alerts, []);
-  const [nearLimitLogs, setNearLimitLogs] = usePersistentState(LOG_KEYS.nearLimit, []);
-  const [errorLogs, setErrorLogs] = usePersistentState(LOG_KEYS.errors, []);
+  const [alertLogs, setAlertLogs] = useState([]);
+  const [metricSnapshots, setMetricSnapshots] = useState([]);
+  const [errorLogs, setErrorLogs] = useState([]);
+  const [passwordResetLogs, setPasswordResetLogs] = useState([]);
+  const [pendingUsers, setPendingUsers] = useState([]);
 
   const rawImageRef = useRef(null);
   const analysisImageRef = useRef(null);
@@ -160,25 +291,23 @@ function Dashboard({ session, onLogout }) {
           setSourceHint("No backend webcam was discovered. Use CCTV or upload footage instead.");
         }
       })
-      .catch((err) => {
-        setErrorLogs((prev) => [{ createdAt: Date.now(), source: "discover", message: err.message }, ...prev].slice(0, 30));
-      });
-    return () => { mounted = false; };
-  }, [setErrorLogs]);
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(async () => {
       try {
-        const healthResponse = await fetch(`${API_BASE}/health`);
-        const health = await healthResponse.json();
+        const health = await apiJson("/health");
         setApiOnline(health.status === "ok");
       } catch {
         setApiOnline(false);
       }
 
       try {
-        const statusResponse = await fetch(`${API_BASE}/status`);
-        const payload = await statusResponse.json();
+        const payload = await apiJson("/status", { headers: {} });
         const nextMetrics = payload.status === "idle" ? EMPTY_METRICS : {
           ...EMPTY_METRICS,
           ...payload,
@@ -196,21 +325,12 @@ function Dashboard({ session, onLogout }) {
           count: nextMetrics.person_count,
           density: nextMetrics.density,
         }]);
-
-        if (["WARNING", "CRITICAL"].includes(nextMetrics.status)) {
-          setAlertLogs((prev) => [{ createdAt: Date.now(), status: nextMetrics.status, count: nextMetrics.person_count, message: nextMetrics.message }, ...prev].slice(0, 30));
-        }
-        if (nextMetrics.occupancy_ratio >= 0.7 && nextMetrics.occupancy_ratio < 0.85) {
-          setNearLimitLogs((prev) => [{ createdAt: Date.now(), occupancy: `${Math.round(nextMetrics.occupancy_ratio * 100)}%`, density: nextMetrics.density.toFixed(2), source: activeSourceLabel }, ...prev].slice(0, 30));
-        }
-      } catch (error) {
+      } catch {
         setMetrics(EMPTY_METRICS);
-        setErrorLogs((prev) => [{ createdAt: Date.now(), source: "status", message: error.message }, ...prev].slice(0, 30));
       }
 
       try {
-        const controlResponse = await fetch(`${API_BASE}/control/state`);
-        const control = await controlResponse.json();
+        const control = await apiJson("/control/state", { headers: {} });
         if (control.running && control.source?.label) {
           setActiveSourceLabel(control.source.label);
           setRawFeedStatus("Backend raw feed live");
@@ -222,7 +342,31 @@ function Dashboard({ session, onLogout }) {
           setAnalysisFrameReady(false);
         }
       } catch {
-        // keep existing labels if control state is unavailable
+        // keep previous state
+      }
+
+      try {
+        const [alerts, snapshots, errors, resets] = await Promise.all([
+          apiJson("/logs/alerts"),
+          apiJson("/logs/metrics"),
+          apiJson("/logs/errors"),
+          apiJson("/logs/password_resets"),
+        ]);
+        setAlertLogs(alerts.items || []);
+        setMetricSnapshots(snapshots.items || []);
+        setErrorLogs(errors.items || []);
+        setPasswordResetLogs(resets.items || []);
+      } catch {
+        // ignore transient log polling issues
+      }
+
+      if (session.role === "admin") {
+        try {
+          const pending = await apiJson("/auth/pending-viewers");
+          setPendingUsers(pending.items || []);
+        } catch {
+          setPendingUsers([]);
+        }
       }
 
       if (rawImageRef.current) {
@@ -231,10 +375,10 @@ function Dashboard({ session, onLogout }) {
       if (analysisImageRef.current) {
         analysisImageRef.current.src = `${API_BASE}/frame/annotated?ts=${Date.now()}`;
       }
-    }, 2500);
+    }, 3000);
 
     return () => clearInterval(timer);
-  }, [activeSourceLabel, setAlertLogs, setErrorLogs, setNearLimitLogs]);
+  }, [session.role]);
 
   const summary = useMemo(() => {
     const cpu = `${Math.min(95, Math.max(10, metrics.person_count * 2))}%`;
@@ -299,19 +443,17 @@ function Dashboard({ session, onLogout }) {
       }
       const payload = sourcePayloadForSelection();
       if (!payload) return;
-      const response = await fetch(`${API_BASE}/control/start`, {
+      await apiJson("/control/start", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error("Backend start request failed.");
       setActiveSourceLabel(payload.label);
       setRawFeedStatus("Backend raw feed live");
       setAnalysisFeedStatus("Backend model live");
       setRawFrameReady(false);
       setAnalysisFrameReady(false);
-    } catch (error) {
-      setErrorLogs((prev) => [{ createdAt: Date.now(), source: "source-start", message: error.message }, ...prev].slice(0, 30));
+    } catch {
+      setAnalysisFeedStatus("Start failed");
     }
   };
 
@@ -340,8 +482,23 @@ function Dashboard({ session, onLogout }) {
       setAnalysisFeedStatus("Backend model live");
       setRawFrameReady(false);
       setAnalysisFrameReady(false);
-    } catch (error) {
-      setErrorLogs((prev) => [{ createdAt: Date.now(), source: "upload", message: error.message }, ...prev].slice(0, 30));
+    } catch {
+      setAnalysisFeedStatus("Upload failed");
+    }
+  };
+
+  const approveViewer = async (email) => {
+    try {
+      await apiJson("/auth/approve-viewer", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          admin_email: session.email,
+        }),
+      });
+      setPendingUsers((prev) => prev.filter((item) => item.email !== email));
+    } catch {
+      // ignore
     }
   };
 
@@ -368,10 +525,10 @@ function Dashboard({ session, onLogout }) {
         </nav>
 
         <div className="session-card">
-          <div className="avatar-circle">{session.username.slice(0, 1).toUpperCase()}</div>
+          <div className="avatar-circle">{session.name.slice(0, 1).toUpperCase()}</div>
           <div>
-            <div className="session-user">{session.username}</div>
-            <div className="session-role">{session.role === "admin" ? "Admin" : "Viewer"}</div>
+            <div className="session-user">{session.name}</div>
+            <div className="session-role">{session.email}</div>
           </div>
         </div>
         <button className="secondary" onClick={onLogout}>Log out</button>
@@ -381,7 +538,7 @@ function Dashboard({ session, onLogout }) {
         <header className="hero-top">
           <div>
             <p className="eyebrow">{session.role === "admin" ? "CrowdGuard Admin" : "CrowdGuard Control"}</p>
-            <h1>{session.role === "admin" ? "Admin monitoring & system health" : "Dual-feed monitoring dashboard"}</h1>
+            <h1>{session.role === "admin" ? "Admin monitoring, approvals & system health" : "Dual-feed monitoring dashboard"}</h1>
           </div>
           <div className="hero-status">
             <span className={`pill ${apiOnline ? "online" : ""}`}>{apiOnline ? "API online" : "API offline"}</span>
@@ -515,9 +672,17 @@ function Dashboard({ session, onLogout }) {
 
         {tab === "history" ? (
           <section className="history-row">
-            <LogTable title="Alert Logs" rows={alertLogs.map((entry) => [timeText(entry.createdAt), entry.status, entry.count, entry.message])} headers={["Time", "Status", "Count", "Message"]} />
+            <LogTable
+              title="Alert Logs"
+              rows={alertLogs.map((entry) => [entry.timestamp || entry.created_at, entry.severity, entry.person_count, entry.message])}
+              headers={["Time", "Severity", "Count", "Message"]}
+            />
             {session.role === "admin" ? (
-              <LogTable title="Near-Limit Logs" rows={nearLimitLogs.map((entry) => [timeText(entry.createdAt), entry.occupancy, entry.density, entry.source])} headers={["Time", "Occupancy", "Density", "Source"]} />
+              <LogTable
+                title="30-Minute Crowd Snapshots"
+                rows={metricSnapshots.map((entry) => [entry.timestamp || entry.created_at, entry.person_count, entry.density, entry.error_count])}
+                headers={["Time", "People", "Density", "Errors"]}
+              />
             ) : null}
           </section>
         ) : null}
@@ -528,9 +693,21 @@ function Dashboard({ session, onLogout }) {
               <Metric label="CPU Utilization" value={summary.cpu} />
               <Metric label="RAM Utilization" value={summary.ram} />
               <Metric label="Software Health" value={summary.software} />
-              <Metric label="Error Count" value={errorLogs.length} />
+              <Metric label="Pending Users" value={pendingUsers.length} />
             </section>
-            <LogTable title="Error Log" rows={errorLogs.map((entry) => [timeText(entry.createdAt), entry.source, entry.message])} headers={["Time", "Source", "Detail"]} />
+            <section className="history-row">
+              <ApprovalTable items={pendingUsers} onApprove={approveViewer} />
+              <LogTable
+                title="Forgot Password Requests"
+                rows={passwordResetLogs.map((entry) => [entry.created_at, entry.email, entry.status, entry.message])}
+                headers={["Time", "Email", "Status", "Message"]}
+              />
+            </section>
+            <LogTable
+              title="Error Log"
+              rows={errorLogs.map((entry) => [entry.timestamp || entry.created_at, entry.camera_id, entry.stage, entry.message])}
+              headers={["Time", "Camera", "Stage", "Message"]}
+            />
           </>
         ) : null}
       </main>
@@ -576,6 +753,36 @@ function LogTable({ title, headers, rows }) {
             {rows.length ? rows.map((row, index) => (
               <tr key={`${title}-${index}`}>{row.map((cell, cellIndex) => <td key={`${title}-${index}-${cellIndex}`}>{cell}</td>)}</tr>
             )) : <tr><td colSpan={headers.length}>No data yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+}
+
+function ApprovalTable({ items, onApprove }) {
+  return (
+    <article className="card">
+      <h3>Pending Viewer Approvals</h3>
+      <div className="table-shell">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Requested</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.length ? items.map((item) => (
+              <tr key={item.email}>
+                <td>{item.name}</td>
+                <td>{item.email}</td>
+                <td>{item.created_at}</td>
+                <td><button className="secondary small" onClick={() => onApprove(item.email)}>Approve</button></td>
+              </tr>
+            )) : <tr><td colSpan={4}>No pending viewers.</td></tr>}
           </tbody>
         </table>
       </div>

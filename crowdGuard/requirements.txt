@@ -15,3 +15,5 @@ flask-cors==6.0.1
 seaborn==0.13.2
 qrcode==8.2
 supervision>=0.25,<1
+pymongo>=4.10,<5
+bcrypt>=4.2,<5

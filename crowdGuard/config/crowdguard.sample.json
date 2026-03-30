@@ -24,6 +24,7 @@
     "display_max_width": 1600,
     "display_max_height": 900,
     "cooldown_seconds": 120,
+    "snapshot_interval_seconds": 1800,
     "tracking": {
       "enabled": true,
       "imgsz": 640,

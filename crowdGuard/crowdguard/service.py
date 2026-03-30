@@ -13,6 +13,7 @@ from .config import CameraConfig, build_camera_config, load_config
 from .detector import CrowdDetector
 from .logging_utils import AlertLogger
 from .maps import polygon_area_sq_meters, resolve_google_place_metadata
+from .mongo_store import MongoStore
 from .risk_engine import estimate_area_sq_meters, evaluate_risk
 
 
@@ -31,7 +32,11 @@ class CrowdGuardService:
         self.processing = self.config.processing
         self.risk_rules = self.config.risk_rules
         self.logger = AlertLogger(Path(self.config.path.parent.parent) / "logs")
+        self.mongo = MongoStore()
         self.alert_cooldowns: dict[str, float] = {}
+        self.snapshot_cooldowns: dict[str, float] = {}
+        self.error_counts: dict[str, int] = {}
+        self.last_errors: dict[str, str] = {}
         self.maps_metadata = resolve_google_place_metadata(self.config.google_maps)
 
     def run(self) -> None:
@@ -78,6 +83,7 @@ class CrowdGuardService:
         display_scale = float(self.processing.get("display_scale", 1.0) or 1.0)
         cooldown_seconds = float(self.processing.get("cooldown_seconds", 120))
         tracking_config = self.processing.get("tracking", {})
+        snapshot_seconds = float(self.processing.get("snapshot_interval_seconds", 1800))
         warning_threshold = float(self.risk_rules.get("warning_threshold", 0.85))
         critical_threshold = float(self.risk_rules.get("critical_threshold", 1.0))
         safe_density_per_sq_meter = float(
@@ -106,31 +112,37 @@ class CrowdGuardService:
                 scale = resize_width / frame.shape[1]
                 frame = cv2.resize(frame, (resize_width, int(frame.shape[0] * scale)))
 
-            if tracking_config.get("enabled", False):
-                tracking = self.detector.track(
-                    frame,
-                    camera.camera_id,
-                    line_zone_config=tracking_config.get("line_zone", {}),
-                    imgsz=int(tracking_config.get("imgsz", 640)),
+            try:
+                if tracking_config.get("enabled", False):
+                    tracking = self.detector.track(
+                        frame,
+                        camera.camera_id,
+                        line_zone_config=tracking_config.get("line_zone", {}),
+                        imgsz=int(tracking_config.get("imgsz", 640)),
+                    )
+                    detections = tracking.detections
+                    in_count = tracking.in_count
+                    out_count = tracking.out_count
+                else:
+                    detections = self.detector.detect(frame)
+                    in_count = 0
+                    out_count = 0
+                risk = evaluate_risk(
+                    person_count=len(detections),
+                    area_sq_meters=area_sq_meters,
+                    safe_density_per_sq_meter=safe_density_per_sq_meter,
+                    warning_threshold=warning_threshold,
+                    critical_threshold=critical_threshold,
                 )
-                detections = tracking.detections
-                in_count = tracking.in_count
-                out_count = tracking.out_count
-            else:
-                detections = self.detector.detect(frame)
-                in_count = 0
-                out_count = 0
-            risk = evaluate_risk(
-                person_count=len(detections),
-                area_sq_meters=area_sq_meters,
-                safe_density_per_sq_meter=safe_density_per_sq_meter,
-                warning_threshold=warning_threshold,
-                critical_threshold=critical_threshold,
-            )
-            annotated = self._annotate_frame(frame, camera, risk, detections, in_count, out_count)
-            self.logger.write_frames(frame, annotated)
-            self._log_metric(camera, risk, in_count, out_count)
-            self._log_alert_if_needed(camera, risk, cooldown_seconds)
+                annotated = self._annotate_frame(frame, camera, risk, detections, in_count, out_count)
+                self.logger.write_frames(frame, annotated)
+                self._log_metric(camera, risk, in_count, out_count)
+                self._log_periodic_snapshot(camera, risk, snapshot_seconds)
+                self._log_alert_if_needed(camera, risk, cooldown_seconds)
+            except Exception as exc:
+                self._log_error(camera, "frame-processing", str(exc))
+                print(f"[ERROR] {camera.camera_id} frame-processing: {exc}")
+                continue
 
             if display:
                 display_frame = self._resize_for_display(
@@ -243,6 +255,40 @@ class CrowdGuardService:
             ]
         )
 
+    def _log_periodic_snapshot(self, camera: CameraConfig, risk, snapshot_seconds: float) -> None:
+        key = camera.camera_id
+        now = time.time()
+        if now - self.snapshot_cooldowns.get(key, 0) < snapshot_seconds:
+            return
+
+        self.snapshot_cooldowns[key] = now
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        error_count = self.error_counts.get(key, 0)
+        last_error = self.last_errors.get(key, "")
+        row = [
+            timestamp,
+            camera.camera_id,
+            camera.label,
+            risk.person_count,
+            round(risk.density, 4),
+            error_count,
+            last_error,
+            risk.status,
+        ]
+        self.logger.log_snapshot(row)
+        self.mongo.log_metric_snapshot(
+            {
+                "timestamp": timestamp,
+                "camera_id": camera.camera_id,
+                "camera_label": camera.label,
+                "person_count": risk.person_count,
+                "density": round(risk.density, 4),
+                "error_count": error_count,
+                "last_error": last_error,
+                "status": risk.status,
+            }
+        )
+
     def _log_alert_if_needed(self, camera: CameraConfig, risk, cooldown_seconds: float) -> None:
         if risk.status == "NORMAL":
             return
@@ -269,7 +315,37 @@ class CrowdGuardService:
                 risk.message,
             ],
         )
+        self.mongo.log_alert(
+            severity,
+            {
+                "timestamp": timestamp,
+                "camera_id": camera.camera_id,
+                "camera_label": camera.label,
+                "person_count": risk.person_count,
+                "safe_capacity": risk.safe_capacity,
+                "occupancy_ratio": round(risk.occupancy_ratio, 4),
+                "density": round(risk.density, 4),
+                "area_sq_meters": round(risk.area_sq_meters, 2),
+                "message": risk.message,
+                "status": risk.status,
+            },
+        )
         print(f"[ALERT] {timestamp} {camera.camera_id} {risk.status}: {risk.message}")
+
+    def _log_error(self, camera: CameraConfig, stage: str, message: str) -> None:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.error_counts[camera.camera_id] = self.error_counts.get(camera.camera_id, 0) + 1
+        self.last_errors[camera.camera_id] = message
+        self.logger.log_error([timestamp, camera.camera_id, camera.label, stage, message])
+        self.mongo.log_error(
+            {
+                "timestamp": timestamp,
+                "camera_id": camera.camera_id,
+                "camera_label": camera.label,
+                "stage": stage,
+                "message": message,
+            }
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
