@@ -12,6 +12,7 @@ pandas>=2.2,<4
 tqdm>=4.65.0
 Flask==3.1.2
 flask-cors==6.0.1
+gunicorn>=23,<24
 seaborn==0.13.2
 qrcode==8.2
 supervision>=0.25,<1

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -215,8 +216,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(Path(__file__).resolve().parents[1] / "config" / "crowdguard.sample.json"),
         help="Path to the monitoring configuration JSON file.",
     )
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", default=5001, type=int)
+    parser.add_argument("--host", default=os.getenv("HOST", "127.0.0.1"))
+    parser.add_argument("--port", default=int(os.getenv("PORT", "5001")), type=int)
     return parser
 
 
