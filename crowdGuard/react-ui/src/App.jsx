@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const STORAGE_KEY = "crowdguard_react_session";
-const API_BASE = "http://127.0.0.1:5001";
+const API_BASE = (
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:5001"
+).replace(/\/$/, "");
 const DEFAULT_ADMIN_EMAIL = "2306252@kiit.ac.in";
 
 const EMPTY_METRICS = {
